@@ -1,6 +1,6 @@
-/* XC Race Tracker — single page, three jobs. Everything is saved on the phone on every tap.
-   Sending is optional and re-sendable: the sheet replaces earlier data for the same race + job. */
-const VERSION = '0.1.0';
+/* XC Race Tracker — one page, three jobs. Every tap is saved on the phone at once.
+   Sending is optional and repeatable: the sheet replaces this phone's earlier data for the same race and job. */
+const VERSION = '0.2.0';
 const $ = id => document.getElementById(id);
 
 // ---------- storage ----------
@@ -8,108 +8,143 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem('xc.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem('xc.' + k, JSON.stringify(v)); } catch (e) { toast('Could not save: ' + e.message, true); } },
 };
-const settings = Object.assign({ race: '', device: '', endpoint: '', bibs: '' }, store.get('settings', {}));
-// A pre-configured link (?race=..&endpoint=..&mode=..) wins over saved settings so you can text each volunteer a link.
+const settings = Object.assign({ race: '', device: '', endpoint: '', key: '', bibs: '' }, store.get('settings', {}));
+// A link can carry settings (?race=..&device=..&endpoint=..&key=..&mode=..) so each volunteer just opens what you text them.
 const qs = new URLSearchParams(location.search);
-for (const k of ['race', 'device', 'endpoint']) if (qs.get(k)) settings[k] = qs.get(k);
-store.set('settings', settings);
-const raceKey = () => (settings.race || 'race').trim();
-// Race data is keyed by race name so switching races never clobbers another race's taps.
+for (const k of ['race', 'device', 'endpoint', 'key']) if (qs.get(k)) settings[k] = qs.get(k);
+const saveSettings = () => store.set('settings', settings);
+saveSettings();
+const raceKey = () => (settings.race || '').trim();
+// Race data is keyed by race name, so switching races never touches another race's taps.
 const rd = {
-  get() { return store.get('race.' + raceKey(), { start: null, laps: [], finishers: [] }); },
+  get() { return store.get('race.' + raceKey(), { start: null, end: null, laps: [], finishers: [] }); },
   set(v) { store.set('race.' + raceKey(), v); },
 };
+let roster = store.get('roster', []);   // [{bib, name, team, race}]
+let races = store.get('races', []);     // race names from the sheet
 
 // ---------- ui helpers ----------
 let toastTimer;
 function toast(msg, err) {
   const t = $('toast'); t.textContent = msg; t.className = err ? 'err' : ''; clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.add('hidden'), err ? 5000 : 2200);
+  toastTimer = setTimeout(() => t.classList.add('hidden'), err ? 6000 : 2500);
 }
+// Two-tap confirmation that lives in the button itself (no browser popups): first tap arms it, second within 3 s fires.
+function armed(btn, label, fn) {
+  if (btn.dataset.armed) { clearTimeout(+btn.dataset.armed); disarm(btn); return fn(); }
+  btn.dataset.label = btn.innerHTML; btn.innerHTML = label; btn.classList.add('armed');
+  btn.dataset.armed = setTimeout(() => disarm(btn), 3000);
+}
+function disarm(btn) { if (!btn.dataset.armed) return; btn.innerHTML = btn.dataset.label; btn.classList.remove('armed'); delete btn.dataset.armed; }
+const TITLES = { home: 'XC Race Tracker', timer: 'Timer', finishers: 'Finishers', results: 'Results', settings: 'Settings' };
 function show(view) {
   document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
   $('view-' + view).classList.remove('hidden');
-  $('hdr-race').textContent = [settings.race, settings.device].filter(Boolean).join(' · ');
-  if (view !== 'settings' && view !== 'home') store.set('mode', view);
-  if (view === 'timer') renderTimer();
-  if (view === 'finishers') renderFinishers();
-  if (view === 'results') loadResults();
-  if (view === 'settings') { $('set-race').value = settings.race; $('set-device').value = settings.device;
-    $('set-endpoint').value = settings.endpoint; $('set-bibs').value = settings.bibs; }
+  $('hdr-title').textContent = TITLES[view];
+  $('hdr-race').textContent = view === 'home' ? '' : [settings.race, settings.device].filter(Boolean).join(' · ');
+  $('btn-back').classList.toggle('hidden', view === 'home');
+  store.set('view', view);
+  ({ home: renderHome, timer: renderTimer, finishers: renderFinishers, results: loadResults, settings: renderSettings })[view]();
+  window.scrollTo(0, 0);
 }
 function fmt(ms) {
-  const t = Math.floor(ms / 100), tenths = t % 10, s = Math.floor(t / 10) % 60, m = Math.floor(t / 600);
+  const t = Math.round(ms / 100), tenths = t % 10, s = Math.floor(t / 10) % 60, m = Math.floor(t / 600);
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${tenths}`;
+}
+function parseTime(str) { // "12:34.5", "12:34", "754.5" (seconds)
+  const m = String(str).trim().match(/^(?:(\d+):)?(\d+(?:\.\d+)?)$/); if (!m) return null;
+  return Math.round(((+m[1] || 0) * 60 + +m[2]) * 1000);
 }
 async function copyText(text) {
   try { await navigator.clipboard.writeText(text); toast('Copied — paste it into a text to the scorer'); }
   catch { prompt('Copy this:', text); }
 }
-let wakeLock;
-async function keepAwake() { try { wakeLock = await navigator.wakeLock?.request('screen'); } catch {} }
+async function keepAwake() { try { await navigator.wakeLock?.request('screen'); } catch {} }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
 
 // ---------- network ----------
+function needEndpoint() { if (!settings.endpoint) throw new Error('No sheet endpoint set — open ⚙ Settings'); }
 async function post(payload) {
-  if (!settings.endpoint) throw new Error('No sheet endpoint set (⚙ Settings)');
+  needEndpoint();
   // text/plain avoids a CORS preflight, which Apps Script cannot answer.
-  const r = await fetch(settings.endpoint, { method: 'POST', body: JSON.stringify(payload),
+  const r = await fetch(settings.endpoint, { method: 'POST', body: JSON.stringify(Object.assign({ key: settings.key }, payload)),
     headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow' });
-  const j = await r.json();
-  if (!j.ok) throw new Error(j.error || 'Sheet rejected the data');
-  return j;
+  const j = await r.json(); if (!j.ok) throw new Error(j.error || 'Sheet rejected the data'); return j;
 }
 async function get(params) {
-  if (!settings.endpoint) throw new Error('No sheet endpoint set (⚙ Settings)');
-  const u = new URL(settings.endpoint); Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
+  needEndpoint();
+  const u = new URL(settings.endpoint); Object.entries(Object.assign({ key: settings.key }, params)).forEach(([k, v]) => u.searchParams.set(k, v));
   const r = await fetch(u, { redirect: 'follow' }); const j = await r.json();
-  if (!j.ok) throw new Error(j.error || 'Sheet returned an error');
-  return j;
+  if (!j.ok) throw new Error(j.error || 'Sheet returned an error'); return j;
 }
-async function sendWithFeedback(btn, payload, count) {
-  btn.disabled = true; const label = btn.textContent; btn.textContent = 'Sending…';
-  try { const j = await post(payload); toast(`Sent ${count} to the sheet ✓` + (j.note ? ' — ' + j.note : '')); }
-  catch (e) { toast('Send failed: ' + e.message + '. Data is safe on this phone — try again or use Copy.', true); }
-  finally { btn.disabled = false; btn.textContent = label; }
+async function sendWithFeedback(btns, payload, what) {
+  btns.forEach(b => { b.disabled = true; });
+  try { const j = await post(payload); toast(`Sent ${what} to the sheet ✓` + (j.note ? ' — ' + j.note : ''), !!j.note); }
+  catch (e) { toast('Send failed: ' + e.message + '. Nothing is lost — try again or use Copy.', true); }
+  finally { btns.forEach(b => { b.disabled = false; }); }
 }
+async function syncFromSheet(quiet) {
+  try {
+    const j = await get({ action: 'roster' });
+    roster = j.roster || []; races = j.races || []; store.set('roster', roster); store.set('races', races); store.set('lastSync', Date.now());
+    if (!quiet) toast(`Connected — ${races.length} races, ${roster.length} bibs loaded`);
+    return true;
+  } catch (e) { if (!quiet) toast('Could not reach the sheet: ' + e.message, true); return false; }
+}
+
+// ---------- HOME ----------
+function renderHome() {
+  const sel = $('home-race'); const known = [...new Set([...races, ...roster.map(r => r.race).filter(Boolean)])];
+  sel.innerHTML = '<option value="">Choose a race…</option>' + known.map(r => `<option>${r}</option>`).join('') + '<option value="__other">Other (type it)…</option>';
+  const isKnown = known.includes(settings.race);
+  sel.value = settings.race && !isKnown ? '__other' : settings.race;
+  $('home-race-other').classList.toggle('hidden', sel.value !== '__other');
+  $('home-race-other').value = isKnown ? '' : settings.race;
+  $('home-device').value = settings.device;
+  const d = settings.race ? rd.get() : null;
+  const last = store.get('lastSync'); 
+  $('home-status').textContent = (settings.endpoint ? (last ? `Sheet: ${roster.length} bibs loaded ${new Date(last).toLocaleTimeString([], {timeStyle:'short'})}` : 'Sheet: not reached yet') : 'Sheet: not set up (⚙)') +
+    (d && (d.laps.length || d.finishers.length) ? ` · this phone has ${d.laps.length} times / ${d.finishers.length} finishers for ${settings.race}` : '');
+}
+$('home-race').onchange = () => { const v = $('home-race').value; $('home-race-other').classList.toggle('hidden', v !== '__other');
+  settings.race = v === '__other' ? $('home-race-other').value.trim() : v; saveSettings(); renderHome(); };
+$('home-race-other').oninput = () => { settings.race = $('home-race-other').value.trim(); saveSettings(); };
+$('home-device').oninput = () => { settings.device = $('home-device').value.trim(); saveSettings(); };
+document.querySelectorAll('button.mode').forEach(b => b.onclick = () => {
+  if (!settings.race) return toast('Choose a race first', true);
+  if (!settings.device && b.dataset.mode !== 'results') return toast('Enter your name first — it labels your data in the sheet', true);
+  show(b.dataset.mode);
+});
 
 // ---------- TIMER ----------
 let clockTimer;
 function renderTimer() {
-  const d = rd.get();
-  $('btn-start').classList.toggle('hidden', !!d.start);
-  $('btn-lap').classList.toggle('hidden', !d.start);
+  const d = rd.get(); const phase = !d.start ? 'idle' : d.end ? 'done' : 'running';
+  ['idle', 'running', 'done'].forEach(p => $('timer-phase-' + p).classList.toggle('hidden', p !== phase));
   $('lap-count').textContent = `${d.laps.length} finisher${d.laps.length === 1 ? '' : 's'}`;
-  $('timer-list').innerHTML = d.laps.map((ms, i) =>
-    `<li><span class="pos">${i + 1}</span><span>${fmt(ms)}</span></li>`).reverse().join('');
+  $('timer-done-msg').textContent = `Race finished — ${d.laps.length} finishers. Check the list, then send.`;
+  $('timer-list').innerHTML = d.laps.map((ms, i) => `<li data-i="${i}"><span class="pos">${i + 1}</span><span>${fmt(ms)}</span></li>`).reverse().join('');
   clearInterval(clockTimer);
-  const tick = () => { $('clock').textContent = d.start ? fmt(Date.now() - d.start) : '00:00.0'; };
-  tick(); if (d.start) clockTimer = setInterval(tick, 100);
+  const tick = () => { $('clock').textContent = d.start ? fmt((d.end || Date.now()) - d.start) : '00:00.0'; };
+  tick(); if (phase === 'running') clockTimer = setInterval(tick, 100);
 }
-$('btn-start').onclick = () => {
-  const d = rd.get(); if (d.start) return;
-  d.start = Date.now(); rd.set(d); keepAwake(); renderTimer(); toast('Race started');
-};
-$('btn-lap').onclick = () => {
-  const now = Date.now(); const d = rd.get(); if (!d.start) return;
-  d.laps.push(now - d.start); rd.set(d); renderTimer();
-  if (navigator.vibrate) navigator.vibrate(30);
-};
-$('btn-timer-undo').onclick = () => {
-  const d = rd.get(); if (!d.laps.length) return toast('Nothing to undo');
-  if (!confirm(`Remove finisher #${d.laps.length} (${fmt(d.laps[d.laps.length - 1])})?`)) return;
-  d.laps.pop(); rd.set(d); renderTimer();
-};
-const timerPayload = () => { const d = rd.get(); return { role: 'timer', race: raceKey(), device: settings.device,
-  start: d.start, entries: d.laps.map((ms, i) => ({ pos: i + 1, ms, time: fmt(ms) })) }; };
-$('btn-timer-send').onclick = () => { const p = timerPayload();
-  if (!p.entries.length) return toast('No finishers yet'); sendWithFeedback($('btn-timer-send'), p, p.entries.length + ' times'); };
-$('btn-timer-copy').onclick = () => copyText(`TIMES ${raceKey()}\n` + rd.get().laps.map((ms, i) => `${i + 1}\t${fmt(ms)}`).join('\n'));
-$('btn-timer-reset').onclick = () => { if (confirm('Erase the start time and ALL lap times for ' + raceKey() + '?') && confirm('Really erase? This cannot be undone.'))
-  { const d = rd.get(); d.start = null; d.laps = []; rd.set(d); renderTimer(); } };
+$('btn-start').onclick = () => { const d = rd.get(); if (d.start) return; d.start = Date.now(); d.end = null; rd.set(d); keepAwake(); renderTimer(); toast('Race started'); };
+$('btn-lap').onclick = () => { const now = Date.now(); const d = rd.get(); if (!d.start || d.end) return;
+  d.laps.push(now - d.start); rd.set(d); renderTimer(); navigator.vibrate?.(30); };
+$('btn-timer-undo').onclick = () => { const d = rd.get(); if (!d.laps.length) return toast('Nothing to undo');
+  armed($('btn-timer-undo'), `Tap again to remove #${d.laps.length}`, () => { d.laps.pop(); rd.set(d); renderTimer(); toast('Removed'); }); };
+$('btn-finish').onclick = () => armed($('btn-finish'), 'Tap again to finish', () => { const d = rd.get(); d.end = Date.now(); rd.set(d); renderTimer(); });
+$('btn-resume').onclick = () => { const d = rd.get(); d.end = null; rd.set(d); renderTimer(); };
+const timerPayload = () => { const d = rd.get(); return { role: 'timer', race: raceKey(), device: settings.device, start: d.start, end: d.end,
+  entries: d.laps.map((ms, i) => ({ pos: i + 1, ms, time: fmt(ms) })) }; };
+const sendTimes = () => { const p = timerPayload(); if (!p.entries.length) return toast('No finishers yet');
+  sendWithFeedback([$('btn-timer-send'), $('btn-timer-send2')], p, p.entries.length + ' times'); };
+$('btn-timer-send').onclick = sendTimes; $('btn-timer-send2').onclick = sendTimes;
+$('btn-timer-copy').onclick = () => copyText(`TIMES ${raceKey()} (${settings.device})\n` + rd.get().laps.map((ms, i) => `${i + 1}\t${fmt(ms)}`).join('\n'));
+$('btn-timer-reset').onclick = () => armed($('btn-timer-reset'), 'Tap again to erase ALL times', () => { const d = rd.get(); d.start = null; d.end = null; d.laps = []; rd.set(d); renderTimer(); toast('Timer reset'); });
+$('timer-list').onclick = e => { const li = e.target.closest('li'); if (li) openEdit('timer', +li.dataset.i); };
 
 // ---------- FINISHERS ----------
-let roster = store.get('roster', []); // [{bib, name, team, race}]
 function bibsForRace() {
   const fromRoster = roster.filter(r => !r.race || r.race === raceKey()).map(r => String(r.bib));
   const manual = (settings.bibs || '').split(/[^0-9]+/).filter(Boolean);
@@ -118,78 +153,93 @@ function bibsForRace() {
 function nameFor(bib) { const r = roster.find(r => String(r.bib) === String(bib)); return r ? `${r.name} · ${r.team}` : ''; }
 function renderFinishers() {
   const d = rd.get(); const done = new Set(d.finishers); const filter = $('bib-filter').value.trim();
-  const bibs = bibsForRace().filter(b => !filter || b.includes(filter));
-  $('bib-grid').innerHTML = bibs.length
-    ? bibs.map(b => `<button class="bib${done.has(b) ? ' done' : ''}" data-bib="${b}">${b}</button>`).join('')
-    : `<p class="hint">No bibs loaded for “${raceKey()}”. Tap “Refresh bibs”, or type them under ⚙ Settings.</p>`;
+  const all = bibsForRace(); const bibs = all.filter(b => !filter || b.includes(filter));
+  $('bib-grid').innerHTML = !all.length
+    ? `<p class="hint">No bibs for “${raceKey()}” on this phone yet. Tap “Reload bib list” (needs signal), or type them under ⚙ Settings.</p>`
+    : bibs.map(b => `<button class="bib${done.has(b) ? ' done' : ''}" data-bib="${b}">${b}</button>`).join('') || '<p class="hint">No bib matches</p>';
   $('fin-list').innerHTML = d.finishers.map((b, i) =>
-    `<li><span class="pos">${i + 1}</span><span>${b === '???' ? '<span class="badge bad">no bib</span>' : b} <small style="color:var(--muted)">${nameFor(b)}</small></span></li>`).reverse().join('');
+    `<li data-i="${i}"><span class="pos">${i + 1}</span><span>${b === '???' ? '<span class="badge bad">no bib</span>' : b} <small style="color:var(--muted)">${nameFor(b)}</small></span></li>`).reverse().join('');
 }
 $('bib-grid').onclick = e => {
-  const btn = e.target.closest('.bib'); if (!btn) return;
-  const bib = btn.dataset.bib; const d = rd.get();
-  if (d.finishers.includes(bib) && !confirm(`Bib ${bib} already finished as #${d.finishers.indexOf(bib) + 1}. Add again anyway?`)) return;
-  d.finishers.push(bib); rd.set(d); $('bib-filter').value = ''; renderFinishers();
-  if (navigator.vibrate) navigator.vibrate(30);
+  const btn = e.target.closest('.bib'); if (!btn) return; const bib = btn.dataset.bib; const d = rd.get();
+  if (d.finishers.includes(bib)) return toast(`Bib ${bib} is already #${d.finishers.indexOf(bib) + 1}. Tap it in the list below to change something.`, true);
+  d.finishers.push(bib); rd.set(d); $('bib-filter').value = ''; renderFinishers(); navigator.vibrate?.(30);
   toast(`#${d.finishers.length}  bib ${bib}  ${nameFor(bib)}`);
 };
 $('bib-filter').oninput = renderFinishers;
 $('btn-unknown').onclick = () => { const d = rd.get(); d.finishers.push('???'); rd.set(d); renderFinishers();
-  toast(`#${d.finishers.length} recorded as "no bib" — write down who it was`); };
-$('btn-fin-undo').onclick = () => {
-  const d = rd.get(); if (!d.finishers.length) return toast('Nothing to undo');
-  const last = d.finishers[d.finishers.length - 1];
-  if (!confirm(`Remove #${d.finishers.length} (bib ${last})?`)) return;
-  d.finishers.pop(); rd.set(d); renderFinishers();
-};
-const finPayload = () => ({ role: 'places', race: raceKey(), device: settings.device,
-  entries: rd.get().finishers.map((bib, i) => ({ pos: i + 1, bib })) });
-$('btn-fin-send').onclick = () => { const p = finPayload();
-  if (!p.entries.length) return toast('No finishers yet'); sendWithFeedback($('btn-fin-send'), p, p.entries.length + ' places'); };
-$('btn-fin-copy').onclick = () => copyText(`PLACES ${raceKey()}\n` + rd.get().finishers.map((b, i) => `${i + 1}\t${b}`).join('\n'));
-$('btn-fin-reset').onclick = () => { if (confirm('Erase ALL finishers for ' + raceKey() + '?') && confirm('Really erase? This cannot be undone.'))
-  { const d = rd.get(); d.finishers = []; rd.set(d); renderFinishers(); } };
-async function refreshRoster(quiet) {
-  try { const j = await get({ action: 'roster' }); roster = j.roster || []; store.set('roster', roster);
-    if (!quiet) toast(`Loaded ${roster.length} bibs`); }
-  catch (e) { if (!quiet) toast('Could not load bibs: ' + e.message, true); }
-  renderFinishers();
+  toast(`#${d.finishers.length} recorded as "no bib" — write down who it was, then fix it in the list`); };
+$('btn-fin-undo').onclick = () => { const d = rd.get(); if (!d.finishers.length) return toast('Nothing to undo');
+  armed($('btn-fin-undo'), `Tap again to remove #${d.finishers.length}`, () => { d.finishers.pop(); rd.set(d); renderFinishers(); toast('Removed'); }); };
+const finPayload = () => ({ role: 'places', race: raceKey(), device: settings.device, entries: rd.get().finishers.map((bib, i) => ({ pos: i + 1, bib })) });
+$('btn-fin-send').onclick = () => { const p = finPayload(); if (!p.entries.length) return toast('No finishers yet');
+  sendWithFeedback([$('btn-fin-send')], p, p.entries.length + ' places'); };
+$('btn-fin-copy').onclick = () => copyText(`PLACES ${raceKey()} (${settings.device})\n` + rd.get().finishers.map((b, i) => `${i + 1}\t${b}`).join('\n'));
+$('btn-roster-refresh').onclick = async () => { const before = bibsForRace().length; if (await syncFromSheet(true)) { renderFinishers();
+  toast(`Bib list reloaded: ${bibsForRace().length} bibs for ${raceKey()}` + (before === bibsForRace().length ? ' (no change)' : '')); } else toast('Could not reach the sheet — keeping the bibs already on this phone', true); };
+$('btn-fin-reset').onclick = () => armed($('btn-fin-reset'), 'Tap again to erase ALL finishers', () => { const d = rd.get(); d.finishers = []; rd.set(d); renderFinishers(); toast('Finishers reset'); });
+$('fin-list').onclick = e => { const li = e.target.closest('li'); if (li) openEdit('finishers', +li.dataset.i); };
+
+// ---------- EDIT ONE ENTRY (both roles) ----------
+let edit = null; // {role, i}
+function openEdit(role, i) {
+  edit = { role, i }; const d = rd.get(); const isT = role === 'timer';
+  $('edit-title').textContent = `#${i + 1} — ${isT ? 'time' : 'bib'}`;
+  $('edit-value').value = isT ? fmt(d.laps[i]) : d.finishers[i];
+  $('edit-value').type = 'text'; $('edit-value').inputMode = isT ? 'decimal' : 'numeric';
+  $('edit-hint').textContent = isT ? 'Minutes:seconds.tenths, e.g. 18:42.3' : 'A bib number from this race, or ??? for no bib';
+  $('edit').classList.remove('hidden'); $('edit-value').focus();
 }
-$('btn-roster-refresh').onclick = () => refreshRoster(false);
+function closeEdit() { edit = null; $('edit').classList.add('hidden'); }
+function editValue() {
+  const v = $('edit-value').value.trim();
+  if (edit.role === 'timer') { const ms = parseTime(v); if (ms == null) { toast('Time must look like 18:42.3', true); return undefined; } return ms; }
+  if (v === '???') return v;
+  if (!bibsForRace().includes(v)) { toast(`Bib ${v} is not in this race`, true); return undefined; } return v;
+}
+function editApply(fn) { const d = rd.get(); const list = edit.role === 'timer' ? d.laps : d.finishers; fn(list); rd.set(d); closeEdit();
+  renderTimer(); renderFinishers(); }
+$('edit-save').onclick = () => { const v = editValue(); if (v === undefined) return; editApply(l => l[edit.i] = v); toast('Saved'); };
+$('edit-before').onclick = () => { const v = editValue(); if (v === undefined) return; editApply(l => l.splice(edit.i, 0, v)); toast('Inserted — everyone after moved down one'); };
+$('edit-after').onclick = () => { const v = editValue(); if (v === undefined) return; editApply(l => l.splice(edit.i + 1, 0, v)); toast('Inserted — everyone after moved down one'); };
+$('edit-delete').onclick = () => armed($('edit-delete'), 'Tap again to delete', () => { editApply(l => l.splice(edit.i, 1)); toast('Deleted — everyone after moved up one'); });
+$('edit-cancel').onclick = closeEdit;
+$('edit').onclick = e => { if (e.target === $('edit')) closeEdit(); };
 
 // ---------- RESULTS ----------
 async function loadResults() {
-  $('results-status').textContent = 'Loading…';
+  $('results-status').textContent = 'Loading…'; $('results-out').innerHTML = '';
   try {
     const j = await get({ action: 'results', race: raceKey() });
-    const ok = j.timesCount === j.placesCount;
-    $('results-status').innerHTML = `${raceKey()} — ${j.timesCount} times, ${j.placesCount} places ` +
-      `<span class="badge ${ok ? 'ok' : 'bad'}">${ok ? 'lists match' : 'COUNT MISMATCH — check the lists'}</span>`;
-    let h = '<h3>Team scores</h3><table><tr><th>#</th><th>Team</th><th>Score</th><th>Scorers</th></tr>' +
-      (j.teams || []).map((t, i) => `<tr><td>${i + 1}</td><td>${t.team}</td><td>${t.score ?? 'n/a'}</td><td>${t.note || ''}</td></tr>`).join('') + '</table>';
-    h += '<h3>Individual</h3><table><tr><th>#</th><th>Bib</th><th>Name</th><th>Team</th><th>Time</th></tr>' +
-      (j.results || []).map(r => `<tr><td>${r.pos}</td><td>${r.bib || ''}</td><td>${r.name || ''}</td><td>${r.team || ''}</td><td>${r.time || ''}</td></tr>`).join('') + '</table>';
+    const flagged = (j.results || []).filter(r => r.flags).length;
+    const devs = j.devices || { timer: [], places: [] };
+    $('results-status').innerHTML = `${raceKey()} — timers: ${devs.timer.map(d => `${d.device} (${d.count})`).join(', ') || 'none'}; ` +
+      `finishers: ${devs.places.map(d => `${d.device} (${d.count})`).join(', ') || 'none'} ` +
+      `<span class="badge ${j.warnings?.length || flagged ? 'bad' : 'ok'}">${j.warnings?.length || flagged ? [...(j.warnings || []), flagged ? flagged + ' flagged rows' : ''].filter(Boolean).join(' · ') : 'all consistent'}</span>`;
+    let h = '<h3>Team scores</h3><table><tr><th>#</th><th>Team</th><th>Score</th><th>Scorers</th><th></th></tr>' +
+      (j.teams || []).map(t => `<tr><td>${t.rank || ''}</td><td>${t.team}</td><td>${t.score ?? ''}</td><td>${t.scorers || ''}</td><td class="flag">${t.note || ''}</td></tr>`).join('') + '</table>';
+    h += '<h3>Individual</h3><table><tr><th>#</th><th>Bib</th><th>Name</th><th>Team</th><th>Time</th><th></th></tr>' +
+      (j.results || []).map(r => `<tr class="${r.flags ? 'flagged' : ''}"><td>${r.pos}</td><td>${r.bib || ''}</td><td>${r.name || ''}</td><td>${r.team || ''}</td><td>${r.time || ''}</td><td class="flag">${r.flags || ''}</td></tr>`).join('') + '</table>';
     $('results-out').innerHTML = h;
   } catch (e) { $('results-status').textContent = 'Could not load: ' + e.message; }
 }
 $('btn-results-refresh').onclick = loadResults;
 
 // ---------- SETTINGS / NAV ----------
+function renderSettings() { $('set-endpoint').value = settings.endpoint; $('set-key').value = settings.key; $('set-bibs').value = settings.bibs; }
 $('btn-settings').onclick = () => show('settings');
-$('btn-settings-save').onclick = () => {
-  settings.race = $('set-race').value.trim(); settings.device = $('set-device').value.trim();
-  settings.endpoint = $('set-endpoint').value.trim(); settings.bibs = $('set-bibs').value.trim();
-  store.set('settings', settings); toast('Saved'); show(store.get('mode', 'home'));
+$('btn-back').onclick = () => show('home');
+$('btn-settings-save').onclick = async () => {
+  settings.endpoint = $('set-endpoint').value.trim(); settings.key = $('set-key').value.trim(); settings.bibs = $('set-bibs').value.trim(); saveSettings();
+  if (await syncFromSheet(false)) show('home');
 };
-$('btn-home').onclick = () => show('home');
-document.querySelectorAll('button.mode').forEach(b => b.onclick = () => {
-  if (!settings.race) { toast('Set the race name first', true); return show('settings'); }
-  show(b.dataset.mode);
-});
+$('btn-wipe').onclick = () => armed($('btn-wipe'), 'Tap again to erase EVERYTHING', () => { localStorage.clear(); location.href = location.pathname; });
 $('version').textContent = 'v' + VERSION;
 
 // ---------- boot ----------
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
-const startMode = qs.get('mode') || store.get('mode', 'home');
-show(settings.race ? startMode : 'settings');
-if (settings.endpoint && navigator.onLine) refreshRoster(true);
+(async () => {
+  if (settings.endpoint && navigator.onLine) await syncFromSheet(true);
+  const start = qs.get('mode') || store.get('view', 'home');
+  if (!settings.endpoint) show('settings'); else if (start !== 'home' && start !== 'settings' && settings.race && (settings.device || start === 'results')) show(start); else show('home');
+})();

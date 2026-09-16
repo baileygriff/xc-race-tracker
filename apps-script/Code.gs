@@ -11,7 +11,7 @@ const HEADERS = {
   Roster:     ['Team', 'Name', 'Grade', 'Race', 'Bib'],
   Times:      ['Race', 'Pos', 'Ms', 'Time', 'Device', 'Submitted'],
   Places:     ['Race', 'Pos', 'Bib', 'Device', 'Submitted'],
-  Results:    ['Race', 'Pos', 'Bib', 'Name', 'Team', 'Time', 'ScoringPlace', 'Note'],
+  Results:    ['Race', 'Pos', 'Bib', 'Name', 'Team', 'Time', 'ScoringPlace', 'Flags', 'TimesByDevice', 'BibsByDevice'],
   TeamScores: ['Race', 'Rank', 'Team', 'Score', 'Scorers', 'Displacers', 'Note'],
 };
 
@@ -23,9 +23,10 @@ function setup() {
     if (sh.getLastRow() === 0) { sh.appendRow(hdr); sh.setFrozenRows(1); sh.getRange(1, 1, 1, hdr.length).setFontWeight('bold'); }
   });
   const cfg = ss.getSheetByName('Config');
-  if (cfg.getLastRow() < 2) cfg.getRange(2, 1, 4, 2).setValues([
-    ['races', 'Girls Varsity, Boys Varsity, Girls JV, Boys JV'],
-    ['form_url', ''], ['form_edit_url', ''], ['note', 'Edit the races list, then run createRosterForm().']]);
+  if (cfg.getLastRow() < 2) cfg.getRange(2, 1, 5, 2).setValues([
+    ['races', 'Boys, Girls'],
+    ['passcode', ''], ['form_url', ''], ['form_edit_url', ''],
+    ['note', 'Set races and a passcode (volunteers type it once), then run createRosterForm().']]);
   const first = ss.getSheets()[0]; if (first.getName() === 'Sheet1' && first.getLastRow() === 0) ss.deleteSheet(first);
   Logger.log('Setup done. Now edit Config!races and run createRosterForm().');
 }
@@ -39,6 +40,8 @@ function setConfig(key, value) {
   if (i >= 0) sh.getRange(i + 1, 2).setValue(value); else sh.appendRow([key, value]);
 }
 const races = () => config('races').split(',').map(s => s.trim()).filter(Boolean);
+/** Every request must carry the meet passcode from Config (unless none is set). */
+function checkKey(key) { const want = config('passcode').trim(); if (want && String(key || '').trim() !== want) throw new Error('Wrong meet passcode'); }
 
 /** Creates the Google Form coaches fill in, one submission per team per race. */
 function createRosterForm() {
@@ -106,6 +109,7 @@ function rosterList() {
 function doGet(e) {
   try {
     const p = e.parameter || {};
+    checkKey(p.key);
     if (p.action === 'roster') return json({ ok: true, races: races(), roster: rosterList() });
     if (p.action === 'results') return json(Object.assign({ ok: true }, computeResults(p.race)));
     return json({ ok: true, ping: 'XC Race Tracker', races: races() });
@@ -115,58 +119,85 @@ function doPost(e) {
   const lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
     const p = JSON.parse(e.postData.contents);
-    if (!p.race || !p.role || !Array.isArray(p.entries)) throw new Error('Missing race, role or entries');
+    checkKey(p.key);
+    if (!p.race || !p.role || !p.device || !Array.isArray(p.entries)) throw new Error('Missing race, role, device or entries');
     const now = new Date();
     const sheetName = p.role === 'timer' ? 'Times' : p.role === 'places' ? 'Places' : null;
     if (!sheetName) throw new Error('Unknown role ' + p.role);
     const sh = SS().getSheetByName(sheetName);
-    // Replace: a re-send of the same race + job overwrites, so sending twice is always safe.
-    const data = sh.getDataRange().getValues(); const keep = data.filter((r, i) => i === 0 || r[0] !== p.race);
+    // Replace: a re-send from the same phone for the same race overwrites its earlier rows, so sending twice is always safe.
+    const devCol = p.role === 'timer' ? 4 : 3;
+    const data = sh.getDataRange().getValues(); const keep = data.filter((r, i) => i === 0 || r[0] !== p.race || r[devCol] !== p.device);
     sh.clearContents(); if (keep.length) sh.getRange(1, 1, keep.length, keep[0].length).setValues(keep);
     const rows = p.role === 'timer'
       ? p.entries.map(x => [p.race, x.pos, x.ms, x.time, p.device || '', now])
       : p.entries.map(x => [p.race, x.pos, String(x.bib), p.device || '', now]);
     if (rows.length) sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
     const res = computeResults(p.race);
-    const note = res.timesCount && res.placesCount && res.timesCount !== res.placesCount
-      ? `WARNING: ${res.timesCount} times vs ${res.placesCount} places` : '';
+    const flagged = res.results.filter(r => r.flags).length;
+    const note = [...res.warnings, flagged ? `${flagged} row${flagged === 1 ? '' : 's'} flagged` : ''].filter(Boolean).join('; ');
     return json({ ok: true, received: rows.length, note });
   } catch (err) { return json({ ok: false, error: err.message }); }
   finally { lock.releaseLock(); }
 }
 
 // ---------- scoring ----------
+const TIME_TOLERANCE_MS = 1000; // two timers further apart than this on the same position get flagged
+function avg(a) { return Math.round(a.reduce((x, y) => x + y, 0) / a.length); }
+function fmtMs(ms) { const t = Math.round(ms / 100); return `${String(Math.floor(t / 600)).padStart(2, '0')}:${String(Math.floor(t / 10) % 60).padStart(2, '0')}.${t % 10}`; };
+/** Groups a sheet's rows for one race by device: { device: rows sorted by pos }, devices in alphabetical order. */
+function byDevice(sheetName, race, devCol) {
+  const out = {};
+  SS().getSheetByName(sheetName).getDataRange().getValues().slice(1).filter(r => r[0] === race)
+    .forEach(r => (out[r[devCol]] = out[r[devCol]] || []).push(r));
+  Object.values(out).forEach(rows => rows.sort((a, b) => a[1] - b[1]));
+  return Object.fromEntries(Object.keys(out).sort().map(k => [k, out[k]]));
+}
+/** Merges every timer's and every finisher-logger's list by position. Time is the average of the timers;
+ *  bib comes from the first logger (alphabetical) and the others are checked against it. */
 function computeResults(race) {
-  const ss = SS(); race = race || '';
-  const times = ss.getSheetByName('Times').getDataRange().getValues().slice(1).filter(r => r[0] === race).sort((a, b) => a[1] - b[1]);
-  const places = ss.getSheetByName('Places').getDataRange().getValues().slice(1).filter(r => r[0] === race).sort((a, b) => a[1] - b[1]);
+  race = race || '';
+  const times = byDevice('Times', race, 4), places = byDevice('Places', race, 3);
   const byBib = {}; rosterList().forEach(r => byBib[r.bib] = r);
-  const n = Math.max(times.length, places.length);
+  const tDevs = Object.keys(times), pDevs = Object.keys(places);
+  const counts = [...tDevs.map(d => times[d].length), ...pDevs.map(d => places[d].length)];
+  const n = Math.max(0, ...counts);
+  const warnings = [];
+  if (counts.length > 1 && new Set(counts).size > 1)
+    warnings.push('COUNT MISMATCH: ' + [...tDevs.map(d => `${d} ${times[d].length} times`), ...pDevs.map(d => `${d} ${places[d].length} places`)].join(', '));
+  if (!tDevs.length) warnings.push('no times yet'); if (!pDevs.length) warnings.push('no places yet');
   const results = [];
   for (let i = 0; i < n; i++) {
-    const t = times[i], pl = places[i]; const bib = pl ? String(pl[2]) : ''; const r = byBib[bib] || {};
-    let note = '';
-    if (!t) note = 'no time'; else if (!pl) note = 'no bib recorded';
-    else if (bib === '???') note = 'runner had no bib';
-    else if (!byBib[bib]) note = 'bib not on roster';
-    else if (r.race && r.race !== race) note = `bib is on the ${r.race} roster`;
-    results.push({ pos: i + 1, bib, name: r.name || '', team: r.team || '', ms: t ? t[2] : '', time: t ? t[3] : '', scoringPlace: '', note });
+    const flags = [];
+    const ts = tDevs.map(d => times[d][i]).filter(Boolean).map(r => Number(r[2]));
+    if (ts.length > 1 && Math.max(...ts) - Math.min(...ts) > TIME_TOLERANCE_MS) flags.push('timers disagree: ' + tDevs.map(d => times[d][i] ? `${d} ${times[d][i][3]}` : `${d} —`).join(' / '));
+    if (tDevs.length && ts.length < tDevs.length) flags.push('missing a time from ' + tDevs.filter(d => !times[d][i]).join(', '));
+    const bibs = pDevs.map(d => places[d][i] ? String(places[d][i][2]) : '');
+    const bib = bibs.find(Boolean) || '';
+    if (pDevs.length && bibs.some(b => !b)) flags.push('missing a bib from ' + pDevs.filter((d, k) => !bibs[k]).join(', '));
+    if (new Set(bibs.filter(Boolean)).size > 1) flags.push('loggers disagree: ' + pDevs.map((d, k) => `${d} ${bibs[k] || '—'}`).join(' / '));
+    const r = byBib[bib] || {};
+    if (bib === '???') flags.push('runner had no bib'); else if (bib && !byBib[bib]) flags.push('bib not on roster');
+    else if (r.race && r.race !== race) flags.push(`bib is on the ${r.race} roster`);
+    const ms = ts.length ? avg(ts) : '';
+    results.push({ pos: i + 1, bib, name: r.name || '', team: r.team || '', ms, time: ms === '' ? '' : fmtMs(ms), scoringPlace: '', flags: flags.join('; '),
+      times: Object.fromEntries(tDevs.map(d => [d, times[d][i] ? times[d][i][3] : ''])), bibs: Object.fromEntries(pDevs.map((d, k) => [d, bibs[k]])) });
   }
   // Team scoring: only teams with 5+ finishers score; places are renumbered among those runners only.
   const count = {}; results.forEach(r => { if (r.team) count[r.team] = (count[r.team] || 0) + 1; });
   let sp = 0; const teamRuns = {};
-  results.forEach(r => {
-    if (r.team && count[r.team] >= 5) { r.scoringPlace = ++sp; (teamRuns[r.team] = teamRuns[r.team] || []).push(sp); }
-  });
+  results.forEach(r => { if (r.team && count[r.team] >= 5) { r.scoringPlace = ++sp; (teamRuns[r.team] = teamRuns[r.team] || []).push(sp); } });
   const teams = Object.entries(teamRuns).map(([team, p]) => ({ team, score: p.slice(0, 5).reduce((a, b) => a + b, 0),
     scorers: p.slice(0, 5).join(', '), displacers: p.slice(5, 7).join(', '), sixth: p[5] || 9999, note: '' }));
   teams.sort((a, b) => a.score - b.score || a.sixth - b.sixth);
   Object.entries(count).filter(([, c]) => c < 5).forEach(([team, c]) =>
     teams.push({ team, score: null, scorers: '', displacers: '', note: `incomplete team (${c} finisher${c === 1 ? '' : 's'})` }));
   teams.forEach((t, i) => { if (t.score != null) t.rank = i + 1; if (t.note === '' && i > 0 && teams[i - 1].score === t.score) t.note = 'tie broken on 6th runner'; });
-  writeRows('Results', race, results.map(r => [race, r.pos, r.bib, r.name, r.team, r.time, r.scoringPlace, r.note]));
+  writeRows('Results', race, results.map(r => [race, r.pos, r.bib, r.name, r.team, r.time, r.scoringPlace, r.flags,
+    tDevs.map(d => `${d}: ${r.times[d]}`).join(' | '), pDevs.map(d => `${d}: ${r.bibs[d]}`).join(' | ')]));
   writeRows('TeamScores', race, teams.map(t => [race, t.rank || '', t.team, t.score == null ? '' : t.score, t.scorers, t.displacers, t.note]));
-  return { race, timesCount: times.length, placesCount: places.length, results, teams };
+  return { race, warnings, results, teams,
+    devices: { timer: tDevs.map(d => ({ device: d, count: times[d].length })), places: pDevs.map(d => ({ device: d, count: places[d].length })) } };
 }
 function writeRows(sheetName, race, rows) {
   const sh = SS().getSheetByName(sheetName); const data = sh.getDataRange().getValues();

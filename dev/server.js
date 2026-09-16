@@ -1,9 +1,9 @@
 // Local demo: serves the app and pretends to be the Google Sheet. `node dev/server.js`, then open
-// http://localhost:8765/index.html?mode=timer&race=Boys&device=Demo&endpoint=http://localhost:8765/api
+// the App link it prints (the demo passcode is 1234)
 const http = require('http'), fs = require('fs'), path = require('path');
 const { load } = require('./fakesheets');
 const { ctx, sheets } = load();
-ctx.setup(); ctx.setConfig('races', 'Boys, Girls');
+ctx.setup(); ctx.setConfig('races', 'Boys, Girls'); ctx.setConfig('passcode', '1234');
 
 // Seed a roster the way importRoster would: 5 teams, 8 boys and 7 girls each, plus one unattached runner.
 const teams = ['Broughton', 'Enloe', 'Leesville', 'Millbrook', 'Sanderson'];
@@ -40,8 +40,7 @@ http.createServer((req, res) => {
   send(200, MIME[path.extname(f)] || 'application/octet-stream', fs.readFileSync(f));
 }).listen(8765, () => {
   const ep = encodeURIComponent('http://localhost:8765/api');
-  console.log(`Demo running.
-  Timer:     http://localhost:8765/index.html?mode=timer&race=Boys&device=Demo&endpoint=${ep}
-  Finishers: http://localhost:8765/index.html?mode=finishers&race=Boys&device=Demo&endpoint=${ep}
+  console.log(`Demo running (passcode 1234).
+  App:       http://localhost:8765/index.html?endpoint=${ep}&key=1234
   Sheet:     http://localhost:8765/sheet`);
 });

@@ -4,7 +4,10 @@ Phone-friendly timing for a cross country meet. Two volunteers, one Google Sheet
 
 - **Timer** presses LAP as each runner crosses the line.
 - **Finishers** taps each bib number in chute order.
-- The sheet lines the two lists up by position, looks up names and teams, and scores the meet.
+- The sheet lines the lists up by position, looks up names and teams, and scores the meet.
+- **Run two of each.** Two timers and two finish loggers can work the same race. Times are averaged;
+  two timers more than a second apart on the same position, two loggers naming different bibs, or
+  lists of different lengths are flagged in the Results tab and in the app.
 
 Everything is saved on the phone at every tap. Sending is optional and can be repeated: a re-send
 replaces the earlier data for that race and job. If there is no signal, **Copy results** gives a text
@@ -18,8 +21,9 @@ The two apps never depend on each other. If one phone dies, the other list is st
 1. Create a blank Google Sheet. **Extensions → Apps Script.** Delete the sample code, paste
    `apps-script/Code.gs`, save.
 2. Run `setup` (pick it in the function dropdown, press ▶). Approve the permissions prompt.
-3. Back in the sheet, open the **Config** tab and set `races` (comma separated), e.g.
-   `Boys, Girls`. **The race names must match exactly what the volunteers type in the app.**
+3. Back in the sheet, open the **Config** tab. Set `races` (comma separated, e.g. `Boys, Girls`)
+   and a `passcode`. The app offers those races in a picker, and every request has to carry the
+   passcode, so nobody without it can read the roster or write to the sheet.
 4. Run `createRosterForm`. The coach form link appears in Config as `form_url`. Send it to coaches.
 5. **Deploy → New deployment → type: Web app.** Execute as **Me**, who has access **Anyone**.
    Copy the URL ending in `/exec`. That is the endpoint the phones talk to.
@@ -39,32 +43,40 @@ Host the folder anywhere static (GitHub Pages is free; see below) and text each 
 with their job baked in:
 
 ```
-https://<your-host>/index.html?mode=timer&race=Boys&device=Sam&endpoint=https://script.google.com/macros/s/.../exec
-https://<your-host>/index.html?mode=finishers&race=Boys&device=Alex&endpoint=https://script.google.com/macros/s/.../exec
+https://<your-host>/index.html?endpoint=https://script.google.com/macros/s/.../exec&key=<passcode>
 ```
+(`&race=Boys&device=Sam&mode=timer` can be added to pre-fill those too.)
 
 On the phone: open the link once **while online**, then **Share → Add to Home Screen** (iPhone) or
 the browser's **Install app / Add to Home screen** (Android). From then on it opens without signal.
-The ⚙ button changes race, name or endpoint at any time; each race's taps are kept separately.
+The home screen picks the race and the volunteer's name; ⚙ holds the endpoint and passcode. Each
+race's taps are kept separately, so switching races between heats loses nothing.
 
 ## Race day
-1. Both volunteers open the app on the first race, and the Finishers volunteer taps **Refresh bibs**
-   while there is signal (bibs are cached after that).
+1. Every volunteer opens the app, picks the race and types their name (it labels their data in the
+   sheet, so two timers must use different names). Finish loggers tap **Reload bib list** while there
+   is signal; bibs are kept on the phone after that.
 2. Gun: Timer presses **START RACE**. From then on, only **LAP**, once per runner crossing the line.
+   After the last runner, **Finish race** stops the clock.
 3. In the chute, Finishers taps each bib as the runner passes. Runner with no bib → the orange
-   button, and write down who it was. Misclick → **Undo** (it asks first).
-4. After the last runner: both press **Send**. The message confirms the count and warns if the two
-   lists differ in length. Then ⚙ → change the race name to the next race, and repeat.
-5. Results: **Results** mode in the app, or the **Results** and **TeamScores** tabs in the sheet.
+   button, and write down who it was. Misclick → **Undo last** (tap twice).
+4. **Corrections:** tap any entry in the list to change it, insert one before or after it, or delete
+   it. Everything after the change shifts automatically.
+5. After the last runner: everyone presses **Send to sheet**. The reply says what the sheet now has
+   and lists anything that disagrees. Fix it on the phone and send again; a re-send replaces only
+   that phone's earlier data. Then ‹ Home, pick the next race, repeat.
+6. Results: **Results** in the app, or the **Results** and **TeamScores** tabs in the sheet. Flagged
+   rows are the ones to look at before announcing.
 
 Scoring follows the standard rule: only teams with five or more finishers score, places are
 renumbered among those runners only, the score is the sum of the first five, and a tie goes to the
 better sixth runner.
 
 ### If the counts don't match
-One list has a dropped or doubled entry and everything after it is shifted by one. Compare the two
-lists against the chute order (keep a paper backup in the chute this first time); fix the row in the
-**Times** or **Places** tab, then reload Results or press Send again from the phone.
+One list has a dropped or doubled entry and everything after it is shifted by one. With two timers
+and two loggers, the flags show exactly where the lists start disagreeing. Fix the entry on the phone
+(tap it in the list, insert or delete) and press Send again. Keep a paper backup in the chute this
+first time regardless.
 
 ## Hosting on GitHub Pages
 ```bash

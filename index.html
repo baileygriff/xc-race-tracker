@@ -13,31 +13,51 @@
 </head>
 <body>
   <header>
+    <button id="btn-back" class="icon hidden" aria-label="Back">‹ Home</button>
     <div id="hdr-title">XC Race Tracker</div>
     <div id="hdr-race"></div>
     <button id="btn-settings" class="icon" aria-label="Settings">⚙</button>
   </header>
 
-  <!-- HOME: pick a mode -->
+  <!-- HOME -->
   <section id="view-home" class="view">
-    <p class="hint">Pick your job. Your race and settings are remembered on this phone.</p>
+    <label>Race
+      <select id="home-race"></select>
+      <input id="home-race-other" class="hidden" placeholder="Type the race name">
+    </label>
+    <label>Your name<input id="home-device" placeholder="e.g. Sam" autocomplete="off"></label>
+    <div id="home-status" class="hint"></div>
     <button class="mode" data-mode="timer">⏱ Timer<small>Press LAP as each runner crosses the line</small></button>
     <button class="mode" data-mode="finishers">🏃 Finishers<small>Tap each bib number in chute order</small></button>
-    <button class="mode" data-mode="results">🏆 Results<small>See merged results and team scores</small></button>
+    <button class="mode" data-mode="results">🏆 Results<small>Merged results, flags and team scores</small></button>
   </section>
 
   <!-- TIMER -->
   <section id="view-timer" class="view hidden">
     <div id="clock">00:00.0</div>
-    <button id="btn-start" class="big start">START RACE</button>
-    <button id="btn-lap" class="big lap hidden">LAP<small id="lap-count">0 finishers</small></button>
-    <div class="row">
-      <button id="btn-timer-undo" class="secondary">Undo last</button>
-      <button id="btn-timer-send" class="primary">Send</button>
+    <div id="timer-phase-idle">
+      <button id="btn-start" class="big start">START RACE</button>
+      <p class="hint">Press at the gun. The clock keeps running even if the phone locks.</p>
     </div>
-    <ol id="timer-list" class="list" reversed></ol>
+    <div id="timer-phase-running" class="hidden">
+      <button id="btn-lap" class="big lap">LAP<small id="lap-count">0 finishers</small></button>
+      <div class="row">
+        <button id="btn-timer-undo" class="secondary">Undo last</button>
+        <button id="btn-finish" class="warn">Finish race</button>
+      </div>
+    </div>
+    <div id="timer-phase-done" class="hidden">
+      <p class="hint" id="timer-done-msg"></p>
+      <div class="row">
+        <button id="btn-resume" class="secondary">Resume (not finished yet)</button>
+        <button id="btn-timer-send" class="primary">Send to sheet</button>
+      </div>
+    </div>
+    <p class="hint" id="timer-list-hint">Tap a time to correct, insert or delete it.</p>
+    <ol id="timer-list" class="list"></ol>
     <div class="row">
       <button id="btn-timer-copy" class="secondary small">Copy results</button>
+      <button id="btn-timer-send2" class="primary small">Send to sheet</button>
       <button id="btn-timer-reset" class="danger small">Reset race</button>
     </div>
   </section>
@@ -45,43 +65,61 @@
   <!-- FINISHERS -->
   <section id="view-finishers" class="view hidden">
     <div class="row">
-      <input id="bib-filter" type="tel" inputmode="numeric" placeholder="Type bib digits to filter" autocomplete="off">
-      <button id="btn-fin-undo" class="secondary">Undo</button>
+      <input id="bib-filter" type="tel" inputmode="numeric" placeholder="Type digits to find a bib" autocomplete="off">
+      <button id="btn-fin-undo" class="secondary">Undo last</button>
     </div>
     <div id="bib-grid" class="grid"></div>
     <div class="row">
       <button id="btn-unknown" class="warn">Runner with no bib</button>
-      <button id="btn-fin-send" class="primary">Send</button>
+      <button id="btn-fin-send" class="primary">Send to sheet</button>
     </div>
-    <ol id="fin-list" class="list" reversed></ol>
+    <p class="hint">Tap a finisher below to change, insert or delete.</p>
+    <ol id="fin-list" class="list"></ol>
     <div class="row">
       <button id="btn-fin-copy" class="secondary small">Copy results</button>
-      <button id="btn-roster-refresh" class="secondary small">Refresh bibs</button>
+      <button id="btn-roster-refresh" class="secondary small">Reload bib list</button>
       <button id="btn-fin-reset" class="danger small">Reset race</button>
     </div>
   </section>
 
   <!-- RESULTS -->
   <section id="view-results" class="view hidden">
-    <div class="row">
-      <button id="btn-results-refresh" class="primary">Refresh</button>
-    </div>
+    <div class="row"><button id="btn-results-refresh" class="primary">Refresh</button></div>
     <div id="results-status" class="hint"></div>
     <div id="results-out"></div>
   </section>
 
   <!-- SETTINGS -->
   <section id="view-settings" class="view hidden">
-    <label>Race name<input id="set-race" placeholder="e.g. Girls Varsity"></label>
-    <label>Your name<input id="set-device" placeholder="e.g. Sam"></label>
-    <label>Sheet endpoint URL<input id="set-endpoint" placeholder="https://script.google.com/macros/s/.../exec"></label>
-    <label>Bibs for this race (fallback if bibs won't load)<textarea id="set-bibs" rows="3" placeholder="123 456 789"></textarea></label>
+    <label>Sheet endpoint URL<input id="set-endpoint" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off"></label>
+    <label>Meet passcode<input id="set-key" placeholder="Ask the meet director" autocomplete="off"></label>
+    <label>Bibs for this race, only if they won't load from the sheet<textarea id="set-bibs" rows="2" placeholder="123 456 789"></textarea></label>
     <div class="row">
-      <button id="btn-settings-save" class="primary">Save</button>
-      <button id="btn-home" class="secondary">Change job</button>
+      <button id="btn-settings-save" class="primary">Save & check connection</button>
+    </div>
+    <div class="row">
+      <button id="btn-wipe" class="danger small">Erase everything on this phone</button>
     </div>
     <p class="hint" id="version"></p>
   </section>
+
+  <!-- EDIT SHEET (one entry) -->
+  <div id="edit" class="hidden">
+    <div class="sheet">
+      <h3 id="edit-title"></h3>
+      <input id="edit-value" autocomplete="off">
+      <p class="hint" id="edit-hint"></p>
+      <div class="row">
+        <button id="edit-save" class="primary">Save</button>
+        <button id="edit-cancel" class="secondary">Cancel</button>
+      </div>
+      <div class="row">
+        <button id="edit-before" class="secondary small">Insert before</button>
+        <button id="edit-after" class="secondary small">Insert after</button>
+        <button id="edit-delete" class="danger small">Delete</button>
+      </div>
+    </div>
+  </div>
 
   <div id="toast" class="hidden"></div>
   <script src="app.js"></script>

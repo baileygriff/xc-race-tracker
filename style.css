@@ -51,3 +51,12 @@ h3 { margin: 16px 0 6px; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 8px; font-size: 12px; background: var(--gray); }
 .badge.bad { background: var(--red); }
 .badge.ok { background: var(--green); }
+button.armed { background: var(--red) !important; }
+button:disabled { opacity: .4; }
+#btn-back { font-size: 17px; color: #93c5fd; }
+select { width: 100%; font: inherit; padding: 12px; border-radius: 10px; border: 1px solid var(--gray); background: var(--panel); color: var(--text); margin-top: 4px; }
+#edit { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; z-index: 8; }
+#edit .sheet { background: var(--panel); width: 100%; padding: 16px 16px 30px; border-radius: 16px 16px 0 0; }
+#edit input { font-size: 28px; text-align: center; font-variant-numeric: tabular-nums; }
+.flag { color: #fbbf24; }
+.list li.flagged { border-left: 4px solid var(--amber); }
