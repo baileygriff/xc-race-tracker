@@ -60,3 +60,8 @@ select { width: 100%; font: inherit; padding: 12px; border-radius: 10px; border:
 #edit input { font-size: 28px; text-align: center; font-variant-numeric: tabular-nums; }
 .flag { color: #fbbf24; }
 .list li.flagged { border-left: 4px solid var(--amber); }
+
+.ro td input { padding: 6px 8px; font-size: 15px; }
+.ro td.bad input { border-color: var(--red); }
+.ro .x { background: transparent; color: var(--muted); padding: 4px 8px; font-size: 18px; }
+a { color: #93c5fd; }

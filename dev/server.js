@@ -3,7 +3,7 @@
 const http = require('http'), fs = require('fs'), path = require('path');
 const { load } = require('./fakesheets');
 const { ctx, sheets } = load();
-ctx.setup(); ctx.setConfig('races', 'Boys, Girls'); ctx.setConfig('passcode', '1234');
+ctx.setup(); ctx.setConfig('races', 'Boys, Girls'); ctx.setConfig('passcode', '1234'); ctx.setConfig('coach_code', 'coach');
 
 // Seed a roster the way importRoster would: 5 teams, 8 boys and 7 girls each, plus one unattached runner.
 const teams = ['Broughton', 'Enloe', 'Leesville', 'Millbrook', 'Sanderson'];
@@ -42,5 +42,6 @@ http.createServer((req, res) => {
   const ep = encodeURIComponent('http://localhost:8765/api');
   console.log(`Demo running (passcode 1234).
   App:       http://localhost:8765/index.html?endpoint=${ep}&key=1234
+  Coach:     http://localhost:8765/index.html?page=roster&endpoint=${ep}&code=coach
   Sheet:     http://localhost:8765/sheet`);
 });

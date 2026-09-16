@@ -1,6 +1,6 @@
 /* XC Race Tracker — one page, three jobs. Every tap is saved on the phone at once.
    Sending is optional and repeatable: the sheet replaces this phone's earlier data for the same race and job. */
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 const $ = id => document.getElementById(id);
 
 // ---------- storage ----------
@@ -36,15 +36,15 @@ function armed(btn, label, fn) {
   btn.dataset.armed = setTimeout(() => disarm(btn), 3000);
 }
 function disarm(btn) { if (!btn.dataset.armed) return; btn.innerHTML = btn.dataset.label; btn.classList.remove('armed'); delete btn.dataset.armed; }
-const TITLES = { home: 'XC Race Tracker', timer: 'Timer', finishers: 'Finishers', results: 'Results', settings: 'Settings' };
+const TITLES = { home: 'XC Race Tracker', timer: 'Timer', finishers: 'Finishers', results: 'Results', settings: 'Settings', roster: 'Roster' };
 function show(view) {
   document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
   $('view-' + view).classList.remove('hidden');
   $('hdr-title').textContent = TITLES[view];
-  $('hdr-race').textContent = view === 'home' ? '' : [settings.race, settings.device].filter(Boolean).join(' · ');
+  $('hdr-race').textContent = view === 'home' || view === 'roster' ? '' : [settings.race, settings.device].filter(Boolean).join(' · ');
   $('btn-back').classList.toggle('hidden', view === 'home');
   store.set('view', view);
-  ({ home: renderHome, timer: renderTimer, finishers: renderFinishers, results: loadResults, settings: renderSettings })[view]();
+  ({ home: renderHome, timer: renderTimer, finishers: renderFinishers, results: loadResults, settings: renderSettings, roster: renderRoster })[view]();
   window.scrollTo(0, 0);
 }
 function fmt(ms) {
@@ -73,7 +73,7 @@ async function post(payload) {
 }
 async function get(params) {
   needEndpoint();
-  const u = new URL(settings.endpoint); Object.entries(Object.assign({ key: settings.key }, params)).forEach(([k, v]) => u.searchParams.set(k, v));
+  const u = new URL(settings.endpoint); Object.entries(Object.assign({ key: settings.key }, params)).forEach(([k, v]) => { if (v !== undefined) u.searchParams.set(k, v); });
   const r = await fetch(u, { redirect: 'follow' }); const j = await r.json();
   if (!j.ok) throw new Error(j.error || 'Sheet returned an error'); return j;
 }
@@ -225,6 +225,72 @@ async function loadResults() {
 }
 $('btn-results-refresh').onclick = loadResults;
 
+// ---------- ROSTER (coaches paste, check, submit) ----------
+const ro = Object.assign({ code: '', team: '', race: '', paste: '' }, store.get('roster-form', {}));
+if (qs.get('code')) ro.code = qs.get('code');
+let roRows = []; // [{name, grade}]
+/** Turns pasted text into rows. Accepts tabs, commas or runs of spaces between fields; a 1–2 digit field is the grade. */
+function parseRoster(text) {
+  const rows = [];
+  text.split(/\r?\n/).forEach(line => {
+    const raw = line.trim(); if (!raw) return;
+    if (/^(name|runner|first|last|athlete)\b/i.test(raw) && /grade|gr\b|year/i.test(raw)) return; // header row
+    let fields = raw.split(/\t|,|;|\s{2,}/).map(f => f.trim()).filter(Boolean);
+    if (fields.length === 1) { const m = raw.match(/^(.*\S)\s+(\d{1,2})$/); if (m) fields = [m[1], m[2]]; } // "Jane Smith 10"
+    let grade = ''; const names = [];
+    fields.forEach(f => { if (/^\d{1,2}$/.test(f) && !grade) grade = f; else if (!/^\d+$/.test(f)) names.push(f.replace(/^\d+[.)]\s*/, '')); });
+    rows.push({ name: names.join(' ').replace(/\s+/g, ' ').trim(), grade });
+  });
+  return rows;
+}
+function rowProblem(r) { if (!r.name) return 'missing name'; if (r.grade && !(+r.grade >= 5 && +r.grade <= 12)) return 'grade?'; if (!/\s/.test(r.name)) return 'one word — full name?'; return ''; }
+function renderRoster() {
+  $('ro-code').value = ro.code; $('ro-team').value = ro.team; $('ro-paste').value = ro.paste;
+  const sel = $('ro-race'); sel.innerHTML = '<option value="">Choose a race…</option>' + races.map(r => `<option>${r}</option>`).join(''); sel.value = ro.race;
+  if (!races.length && settings.endpoint) coachSync(true);
+  renderRosterPreview();
+}
+async function coachSync(quiet) {
+  try { const j = await get({ action: 'coach', code: ro.code, key: undefined }); races = j.races || []; store.set('races', races);
+    $('ro-teams').innerHTML = (j.teams || []).map(t => `<option>${t}</option>`).join('');
+    const sel = $('ro-race'); sel.innerHTML = '<option value="">Choose a race…</option>' + races.map(r => `<option>${r}</option>`).join(''); sel.value = ro.race; return j; }
+  catch (e) { if (!quiet) toast(e.message, true); }
+}
+function renderRosterPreview() {
+  roRows = parseRoster($('ro-paste').value);
+  if (!roRows.length) return $('ro-preview').innerHTML = '';
+  const bad = roRows.filter(rowProblem).length;
+  $('ro-preview').innerHTML = `<p class="hint">${roRows.length} runners${bad ? `, <span class="flag">${bad} to check</span>` : ''}. Edit any cell.</p>` +
+    '<table class="ro"><tr><th>#</th><th>Name</th><th>Grade</th><th></th></tr>' + roRows.map((r, i) => { const p = rowProblem(r);
+      return `<tr><td>${i + 1}</td><td class="${p ? 'bad' : ''}"><input data-i="${i}" data-f="name" value="${r.name.replace(/"/g, '&quot;')}" placeholder="${p || ''}"></td>` +
+        `<td class="${p === 'grade?' ? 'bad' : ''}"><input data-i="${i}" data-f="grade" value="${r.grade}" inputmode="numeric" style="width:4em"></td><td><button class="x" data-del="${i}">✕</button></td></tr>`; }).join('') + '</table>';
+}
+$('ro-paste').oninput = () => { ro.paste = $('ro-paste').value; store.set('roster-form', ro); renderRosterPreview(); };
+$('ro-preview').oninput = e => { const t = e.target; if (!t.dataset.f) return; const i = +t.dataset.i; roRows[i][t.dataset.f] = t.value.trim();
+  ro.paste = roRows.map(r => r.grade ? `${r.name}, ${r.grade}` : r.name).join('\n'); store.set('roster-form', ro);
+  const p = rowProblem(roRows[i]); const tds = t.closest('tr').querySelectorAll('td'); tds[1].className = p ? 'bad' : ''; tds[2].className = p === 'grade?' ? 'bad' : '';
+  const bad = roRows.filter(rowProblem).length; $('ro-preview').querySelector('p').innerHTML = `${roRows.length} runners${bad ? `, <span class="flag">${bad} to check</span>` : ''}. Edit any cell.`; };
+$('ro-preview').onclick = e => { const b = e.target.closest('[data-del]'); if (!b) return; roRows.splice(+b.dataset.del, 1);
+  ro.paste = roRows.map(r => r.grade ? `${r.name}, ${r.grade}` : r.name).join('\n'); $('ro-paste').value = ro.paste; store.set('roster-form', ro); renderRosterPreview(); };
+['code', 'team', 'race'].forEach(f => $('ro-' + f).oninput = () => { ro[f] = $('ro-' + f).value.trim(); store.set('roster-form', ro); });
+function showRosterOnFile(rows, title) {
+  $('ro-result').innerHTML = `<h3>${title}</h3>` + (rows.length ? '<table><tr><th>Bib</th><th>Name</th><th>Grade</th><th>Race</th></tr>' +
+    rows.map(r => `<tr><td><b>${r.bib}</b></td><td>${r.name}</td><td>${r.grade || ''}</td><td>${r.race}</td></tr>`).join('') + '</table>' : '<p class="hint">Nothing on file for this team yet.</p>');
+}
+$('ro-submit').onclick = async () => {
+  const rows = roRows.filter(r => r.name);
+  if (!ro.team) return toast('Enter your team name', true); if (!ro.race) return toast('Choose a race', true); if (!rows.length) return toast('Paste your runners first', true);
+  const bad = rows.filter(r => rowProblem(r) === 'missing name' || rowProblem(r) === 'grade?'); if (bad.length) return toast(`Fix the ${bad.length} highlighted row${bad.length > 1 ? 's' : ''} first`, true);
+  $('ro-submit').disabled = true;
+  try { const j = await post({ action: 'roster_submit', code: ro.code, team: ro.team, race: ro.race, runners: rows });
+    showRosterOnFile(j.roster, `Submitted — ${ro.team}, ${ro.race}. Bibs:`); toast('Roster submitted ✓'); coachSync(true); }
+  catch (e) { toast('Could not submit: ' + e.message, true); }
+  finally { $('ro-submit').disabled = false; }
+};
+$('ro-load').onclick = async () => { if (!ro.team) return toast('Enter your team name', true);
+  const j = await coachSync(false); if (j) { const mine = await get({ action: 'coach', code: ro.code, team: ro.team, key: undefined }); showRosterOnFile(mine.roster, `On file for ${ro.team}:`); } };
+$('link-roster').onclick = e => { e.preventDefault(); show('roster'); };
+
 // ---------- SETTINGS / NAV ----------
 function renderSettings() { $('set-endpoint').value = settings.endpoint; $('set-key').value = settings.key; $('set-bibs').value = settings.bibs; }
 $('btn-settings').onclick = () => show('settings');
@@ -241,5 +307,5 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catc
 (async () => {
   if (settings.endpoint && navigator.onLine) await syncFromSheet(true);
   const start = qs.get('mode') || store.get('view', 'home');
-  if (!settings.endpoint) show('settings'); else if (start !== 'home' && start !== 'settings' && settings.race && (settings.device || start === 'results')) show(start); else show('home');
+  if (qs.get('page') === 'roster' && settings.endpoint) show('roster'); else if (!settings.endpoint) show('settings'); else if (start !== 'home' && start !== 'settings' && settings.race && (settings.device || start === 'results')) show(start); else show('home');
 })();

@@ -3,7 +3,7 @@
  * Paste into Extensions → Apps Script of a blank Google Sheet, run setup() once,
  * then Deploy → New deployment → Web app (Execute as: Me, Who has access: Anyone).
  *
- * Sheets:  Config | Roster | Times | Places | Results | TeamScores  (+ the form's own responses tab)
+ * Sheets:  Config | Roster | Times | Places | Results | TeamScores
  */
 const SS = () => SpreadsheetApp.getActiveSpreadsheet();
 const HEADERS = {
@@ -25,10 +25,10 @@ function setup() {
   const cfg = ss.getSheetByName('Config');
   if (cfg.getLastRow() < 2) cfg.getRange(2, 1, 5, 2).setValues([
     ['races', 'Boys, Girls'],
-    ['passcode', ''], ['form_url', ''], ['form_edit_url', ''],
-    ['note', 'Set races and a passcode (volunteers type it once), then run createRosterForm().']]);
+    ['passcode', ''], ['coach_code', ''],
+    ['note', 'races: comma separated. passcode: volunteers. coach_code: coaches submitting rosters (falls back to passcode).']]);
   const first = ss.getSheets()[0]; if (first.getName() === 'Sheet1' && first.getLastRow() === 0) ss.deleteSheet(first);
-  Logger.log('Setup done. Now edit Config!races and run createRosterForm().');
+  Logger.log('Setup done. Now fill in Config (races, passcode, coach_code) and deploy as a web app.');
 }
 function config(key) {
   const rows = SS().getSheetByName('Config').getDataRange().getValues();
@@ -42,45 +42,28 @@ function setConfig(key, value) {
 const races = () => config('races').split(',').map(s => s.trim()).filter(Boolean);
 /** Every request must carry the meet passcode from Config (unless none is set). */
 function checkKey(key) { const want = config('passcode').trim(); if (want && String(key || '').trim() !== want) throw new Error('Wrong meet passcode'); }
+function checkCoachCode(code) { const want = (config('coach_code') || config('passcode')).trim(); if (want && String(code || '').trim() !== want) throw new Error('Wrong coach code'); }
 
-/** Creates the Google Form coaches fill in, one submission per team per race. */
-function createRosterForm() {
-  const form = FormApp.create('XC Meet Roster Submission');
-  form.setDescription('One submission per team per race. List every runner, one per line.');
-  form.addTextItem().setTitle('Team / School').setRequired(true);
-  form.addTextItem().setTitle('Coach email');
-  form.addListItem().setTitle('Race').setChoiceValues(races()).setRequired(true);
-  form.addParagraphTextItem().setTitle('Runners')
-    .setHelpText('One runner per line, like:\nJane Smith, 10\nSam Lee, 11\n(grade is optional)').setRequired(true);
-  form.setDestination(FormApp.DestinationType.SPREADSHEET, SS().getId());
-  setConfig('form_url', form.getPublishedUrl()); setConfig('form_edit_url', form.getEditUrl());
-  Logger.log('Send coaches this link: ' + form.getPublishedUrl());
+/** A coach's pasted roster for one team + race. Replaces that team's rows for the race, keeping bibs
+ *  already assigned to runners with the same name, then assigns bibs to the new ones. */
+function submitRoster(p) {
+  let team = String(p.team || '').trim(); const race = String(p.race || '').trim();
+  if (!team || !race) throw new Error('Team and race are required');
+  if (!races().includes(race)) throw new Error('Unknown race ' + race);
+  const runners = (p.runners || []).map(r => ({ name: String(r.name || '').trim(), grade: String(r.grade || '').trim() })).filter(r => r.name);
+  if (!runners.length) throw new Error('No runners');
+  const sh = SS().getSheetByName('Roster'); const data = sh.getDataRange().getValues();
+  const mine = r => String(r[0]).trim().toLowerCase() === team.toLowerCase() && String(r[3]).trim() === race;
+  const seen = data.slice(1).find(r => String(r[0]).trim().toLowerCase() === team.toLowerCase()); if (seen) team = String(seen[0]).trim(); // keep the spelling already on file
+  const oldBib = {}; data.slice(1).filter(mine).forEach(r => oldBib[String(r[1]).trim().toLowerCase()] = String(r[4]));
+  const keep = data.filter((r, i) => i === 0 || !mine(r));
+  sh.clearContents(); sh.getRange(1, 1, keep.length, keep[0].length).setValues(keep);
+  const rows = runners.map(r => [team, r.name, r.grade, race, oldBib[r.name.toLowerCase()] || '']);
+  sh.getRange(sh.getLastRow() + 1, 1, rows.length, 5).setValues(rows);
+  assignBibs();
+  return rosterList().filter(r => r.team.toLowerCase() === team.toLowerCase() && r.race === race);
 }
-
-/** Pulls every form response into Roster (skipping runners already there) and assigns bibs. */
-function importRoster() {
-  const ss = SS();
-  const resp = ss.getSheets().find(s => /^Form Responses/.test(s.getName()));
-  if (!resp) throw new Error('No form responses tab yet');
-  const data = resp.getDataRange().getValues(); const hdr = data.shift();
-  const col = name => hdr.findIndex(h => String(h).toLowerCase().startsWith(name));
-  const cTeam = col('team'), cRace = col('race'), cRunners = col('runners');
-  const roster = ss.getSheetByName('Roster');
-  const existing = new Set(roster.getDataRange().getValues().slice(1).map(r => [r[0], r[1], r[3]].join('|').toLowerCase()));
-  const add = [];
-  data.forEach(row => {
-    const team = String(row[cTeam]).trim(), race = String(row[cRace]).trim();
-    String(row[cRunners]).split(/\r?\n/).map(s => s.trim()).filter(Boolean).forEach(line => {
-      const [name, grade] = line.split(',').map(s => s.trim());
-      const key = [team, name, race].join('|').toLowerCase();
-      if (existing.has(key)) return; existing.add(key);
-      add.push([team, name, grade || '', race, '']);
-    });
-  });
-  if (add.length) roster.getRange(roster.getLastRow() + 1, 1, add.length, 5).setValues(add);
-  const n = assignBibs();
-  Logger.log(`Imported ${add.length} runners, assigned ${n} bibs.`);
-}
+function teamsList() { return [...new Set(SS().getSheetByName('Roster').getDataRange().getValues().slice(1).map(r => String(r[0]).trim()).filter(Boolean))].sort(); }
 
 /** Gives every Roster row without a bib a 3-digit number that differs from every other bib
  *  in at least two digit positions, so a single misread digit can never land on another real runner. */
@@ -109,6 +92,8 @@ function rosterList() {
 function doGet(e) {
   try {
     const p = e.parameter || {};
+    if (p.action === 'coach') { checkCoachCode(p.code); return json({ ok: true, races: races(), teams: teamsList(),
+      roster: p.team ? rosterList().filter(r => r.team.toLowerCase() === String(p.team).toLowerCase()) : [] }); }
     checkKey(p.key);
     if (p.action === 'roster') return json({ ok: true, races: races(), roster: rosterList() });
     if (p.action === 'results') return json(Object.assign({ ok: true }, computeResults(p.race)));
@@ -119,6 +104,7 @@ function doPost(e) {
   const lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
     const p = JSON.parse(e.postData.contents);
+    if (p.action === 'roster_submit') { checkCoachCode(p.code); return json({ ok: true, roster: submitRoster(p) }); }
     checkKey(p.key);
     if (!p.race || !p.role || !p.device || !Array.isArray(p.entries)) throw new Error('Missing race, role, device or entries');
     const now = new Date();

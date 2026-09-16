@@ -30,6 +30,22 @@
     <button class="mode" data-mode="timer">⏱ Timer<small>Press LAP as each runner crosses the line</small></button>
     <button class="mode" data-mode="finishers">🏃 Finishers<small>Tap each bib number in chute order</small></button>
     <button class="mode" data-mode="results">🏆 Results<small>Merged results, flags and team scores</small></button>
+    <p class="hint"><a href="#" id="link-roster">Coach? Submit your roster here.</a></p>
+  </section>
+
+  <!-- ROSTER (coaches) -->
+  <section id="view-roster" class="view hidden">
+    <p class="hint">Paste your roster from a spreadsheet, a text, anywhere. One runner per line. Check the list, fix anything wrong, then submit. Bibs are assigned on the spot.</p>
+    <label>Coach code<input id="ro-code" placeholder="From the meet director" autocomplete="off"></label>
+    <label>Team / school<input id="ro-team" list="ro-teams" placeholder="e.g. Broughton" autocomplete="off"><datalist id="ro-teams"></datalist></label>
+    <label>Race<select id="ro-race"></select></label>
+    <label>Runners<textarea id="ro-paste" rows="6" placeholder="Jane Smith, 10&#10;Sam Lee 11&#10;Alex Kim"></textarea></label>
+    <div id="ro-preview"></div>
+    <div class="row">
+      <button id="ro-submit" class="primary">Submit roster</button>
+      <button id="ro-load" class="secondary">Show what's on file</button>
+    </div>
+    <div id="ro-result"></div>
   </section>
 
   <!-- TIMER -->

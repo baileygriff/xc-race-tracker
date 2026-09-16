@@ -21,22 +21,29 @@ The two apps never depend on each other. If one phone dies, the other list is st
 1. Create a blank Google Sheet. **Extensions → Apps Script.** Delete the sample code, paste
    `apps-script/Code.gs`, save.
 2. Run `setup` (pick it in the function dropdown, press ▶). Approve the permissions prompt.
-3. Back in the sheet, open the **Config** tab. Set `races` (comma separated, e.g. `Boys, Girls`)
-   and a `passcode`. The app offers those races in a picker, and every request has to carry the
-   passcode, so nobody without it can read the roster or write to the sheet.
-4. Run `createRosterForm`. The coach form link appears in Config as `form_url`. Send it to coaches.
-5. **Deploy → New deployment → type: Web app.** Execute as **Me**, who has access **Anyone**.
+3. Back in the sheet, open the **Config** tab. Set `races` (comma separated, e.g. `Boys, Girls`),
+   a `passcode` for volunteers and a `coach_code` for coaches. The app offers those races in a
+   picker, and every request has to carry the right code, so nobody without one can read the roster
+   or write to the sheet.
+4. **Deploy → New deployment → type: Web app.** Execute as **Me**, who has access **Anyone**.
    Copy the URL ending in `/exec`. That is the endpoint the phones talk to.
    (Any later edit to the script needs **Deploy → Manage deployments → edit → New version**.)
 
 ### 2. The roster
-Coaches submit one form per team per race, one runner per line (`Name, grade`).
-When they are in: run `importRoster`. It fills the **Roster** tab and assigns every runner a 3-digit
-bib. Bibs are chosen so any two differ in at least two digits, so a misread digit can't become
-another runner. Print the bibs from the Roster tab. Run `importRoster` again any time; it only adds
-new runners and never changes a bib already assigned.
+Send coaches the roster link:
 
-To add a runner by hand, add a row to Roster with the bib blank and run `assignBibs`.
+```
+https://<your-host>/index.html?page=roster&endpoint=https://script.google.com/macros/s/.../exec&code=<coach_code>
+```
+
+They type their team, pick the race, and paste their list from wherever they keep it (a
+spreadsheet column, a text, `Name, grade` lines). The page shows what it understood in an editable
+table, highlights anything doubtful, and on submit the sheet assigns bibs and shows them straight
+back. Re-submitting replaces that team's list for the race and keeps bibs already assigned.
+
+Bibs are chosen so any two differ in at least two digits, so a misread digit can't become another
+runner. Print them from the **Roster** tab. To add a runner by hand, add a Roster row with the bib
+blank and run `assignBibs` in the script editor.
 
 ### 3. The phones
 Host the folder anywhere static (GitHub Pages is free; see below) and text each volunteer a link

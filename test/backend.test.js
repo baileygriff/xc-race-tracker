@@ -61,4 +61,20 @@ post({ role:'places', race:'Girls', device:'Pat', entries:[{pos:1,bib:newBib}] }
 assert.strictEqual(sheets.Places.rows.filter(x=>x[0]==='Girls').length, 1);
 assert.strictEqual(sheets.Results.rows.filter(x=>x[0]==='Boys').length, 13);
 assert.strictEqual(ctx.doGet({parameter:{action:'roster', key:'pc'}}).roster.length, 13);
+
+// coach roster submission: wrong code refused; submit assigns bibs; re-submit keeps bibs and drops removed runners
+ctx.setConfig('coach_code', 'cc');
+const coach = body => ctx.doPost({ postData:{ contents: JSON.stringify(Object.assign({ action:'roster_submit', code:'cc' }, body)) } });
+assert.match(ctx.doPost({ postData:{ contents: JSON.stringify({ action:'roster_submit', code:'pc', team:'E', race:'Girls', runners:[{name:'e1'}] }) } }).error, /coach code/);
+let cr = coach({ team:'E', race:'Girls', runners:[{name:'Ella One', grade:'9'},{name:'Emma Two', grade:''}] });
+assert.ok(cr.ok, cr.error); assert.strictEqual(cr.roster.length, 2); cr.roster.forEach(r => assert.match(r.bib, /^\d{3}$/));
+const ellaBib = cr.roster.find(r => r.name === 'Ella One').bib;
+cr = coach({ team:'e', race:'Girls', runners:[{name:'Ella One', grade:'10'},{name:'Eve Three', grade:'11'}] });
+assert.strictEqual(cr.roster.length, 2);
+assert.strictEqual(cr.roster.find(r => r.name === 'Ella One').bib, ellaBib);
+assert.ok(!cr.roster.find(r => r.name === 'Emma Two'));
+assert.strictEqual(sheets.Roster.rows.filter(r => String(r[0]).toLowerCase() === 'e').length, 2);
+assert.match(coach({ team:'E', race:'Mixed', runners:[{name:'x y'}] }).error, /Unknown race/);
+const cg = ctx.doGet({ parameter:{ action:'coach', code:'cc', team:'E' } });
+assert.ok(cg.teams.includes('E') && cg.roster.length === 2);
 console.log('backend tests pass');
