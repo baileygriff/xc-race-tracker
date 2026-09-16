@@ -75,6 +75,9 @@ The site is then at `https://<user>.github.io/xc-race-tracker/index.html`. Any p
 
 ## Development
 ```bash
-python3 -m http.server 8765      # then open http://localhost:8765/index.html?race=Test&device=Me
+node dev/server.js               # full local demo: the app + a stand-in Google Sheet, seeded roster
 node test/backend.test.js        # scoring, bib assignment and re-send behaviour, no Google needed
 ```
+The demo server prints ready-made Timer and Finishers links and a `/sheet` page that shows what
+the real script would write to every tab. It runs the actual `Code.gs`, so what you see there is
+what the real sheet will do.
