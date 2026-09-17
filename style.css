@@ -64,3 +64,4 @@ select { width: 100%; font: inherit; padding: 12px; border-radius: 10px; border:
 .ro td.bad input { border-color: var(--red); }
 .ro .x { background: transparent; color: var(--muted); padding: 4px 8px; font-size: 18px; }
 a { color: #93c5fd; }
+.ro td.ro-bib { width: 3.5em; font-variant-numeric: tabular-nums; }

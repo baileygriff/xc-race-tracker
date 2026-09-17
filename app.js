@@ -230,7 +230,21 @@ const ro = Object.assign({ code: '', team: '', race: '', drafts: {} }, store.get
 if (qs.get('code')) ro.code = qs.get('code');
 let roTeams = store.get('teams', []);
 let roRows = []; // [{name, grade}]
+let roOnFile = []; // runners already in the sheet for this team + race
 const draftKey = () => `${ro.team.toLowerCase()}|${ro.race}`;
+const bibOnFile = name => (roOnFile.find(r => r.name.toLowerCase() === name.toLowerCase()) || {}).bib;
+/** Fetches this team + race from the sheet. With `fill`, or when the editor is empty, puts it in the editor so small edits are easy. */
+async function loadOnFile(fill) {
+  roOnFile = []; if (!ro.team || !ro.race) { $('ro-file-status').textContent = ''; return; }
+  $('ro-file-status').textContent = 'Checking the sheet…';
+  try { const j = await get({ action: 'coach', code: ro.code, team: ro.team, key: undefined });
+    roOnFile = (j.roster || []).filter(r => r.race === ro.race);
+    const empty = !$('ro-paste').value.trim();
+    if (roOnFile.length && (fill || empty)) { $('ro-paste').value = roOnFile.map(r => r.grade ? `${r.name}, ${r.grade}` : r.name).join('\n'); ro.drafts[draftKey()] = $('ro-paste').value; saveRo(); }
+    $('ro-file-status').textContent = roOnFile.length ? `${roOnFile.length} runners on file for ${ro.team} ${ro.race}, loaded below with their bibs. Edit, add or remove lines, then submit.` : `Nothing on file yet for ${ro.team} ${ro.race}.`;
+  } catch (e) { $('ro-file-status').innerHTML = `<span class="flag">⚠ ${e.message}</span>`; }
+  renderRosterPreview();
+}
 const saveRo = () => store.set('roster-form', ro);
 /** Turns pasted text into rows. Accepts tabs, commas or runs of spaces between fields; a 1–2 digit field is the grade. */
 function parseRoster(text) {
@@ -259,7 +273,7 @@ function renderRoster() {
   const sel = $('ro-race'); sel.innerHTML = '<option value="">Choose a race…</option>' + races.map(r => `<option>${r}</option>`).join(''); sel.value = ro.race;
   $('ro-paste').value = ro.drafts[draftKey()] || '';
   $('ro-result').innerHTML = '';
-  if (settings.endpoint) coachSync(true);
+  if (settings.endpoint) coachSync(true).then(() => loadOnFile(false));
   renderRosterPreview();
 }
 async function coachSync(quiet) {
@@ -282,8 +296,8 @@ function renderRosterPreview() {
   roRows = parseRoster($('ro-paste').value);
   if (!roRows.length) return $('ro-preview').innerHTML = '';
   $('ro-preview').innerHTML = `<p class="hint">${previewHint()}</p>` +
-    '<table class="ro"><tr><th>#</th><th>Name</th><th>Grade</th><th></th></tr>' + roRows.map((r, i) => { const p = rowProblem(r);
-      return `<tr><td>${i + 1}</td><td class="${p ? 'bad' : ''}"><input data-i="${i}" data-f="name" value="${r.name.replace(/"/g, '&quot;')}" placeholder="${p || ''}"></td>` +
+    '<table class="ro"><tr><th>Bib</th><th>Name</th><th>Grade</th><th></th></tr>' + roRows.map((r, i) => { const p = rowProblem(r); const bib = bibOnFile(r.name);
+      return `<tr><td class="ro-bib">${bib ? `<b>${bib}</b>` : '<span class="badge">new</span>'}</td><td class="${p ? 'bad' : ''}"><input data-i="${i}" data-f="name" value="${r.name.replace(/"/g, '&quot;')}" placeholder="${p || ''}"></td>` +
         `<td class="${p === 'grade?' ? 'bad' : ''}"><input data-i="${i}" data-f="grade" value="${r.grade}" inputmode="numeric" style="width:4em"></td><td><button class="x" data-del="${i}">✕</button></td></tr>`; }).join('') + '</table>';
 }
 const rowsToText = () => roRows.map(r => r.grade ? `${r.name}, ${r.grade}` : r.name).join('\n');
@@ -291,10 +305,11 @@ $('ro-paste').oninput = () => { ro.drafts[draftKey()] = $('ro-paste').value; sav
 $('ro-preview').oninput = e => { const t = e.target; if (!t.dataset.f) return; const i = +t.dataset.i; roRows[i][t.dataset.f] = t.value.trim();
   ro.drafts[draftKey()] = rowsToText(); saveRo();
   const p = rowProblem(roRows[i]); const tds = t.closest('tr').querySelectorAll('td'); tds[1].className = p ? 'bad' : ''; tds[2].className = p === 'grade?' ? 'bad' : '';
+  const bib = bibOnFile(roRows[i].name); tds[0].innerHTML = bib ? `<b>${bib}</b>` : '<span class="badge">new</span>';
   $('ro-preview').querySelector('p').innerHTML = previewHint(); };
 $('ro-preview').onclick = e => { const b = e.target.closest('[data-del]'); if (!b) return; roRows.splice(+b.dataset.del, 1);
   ro.drafts[draftKey()] = rowsToText(); $('ro-paste').value = ro.drafts[draftKey()]; saveRo(); renderRosterPreview(); };
-function switchDraft() { $('ro-paste').value = ro.drafts[draftKey()] || ''; $('ro-result').innerHTML = ''; renderRosterPreview(); }
+function switchDraft() { $('ro-paste').value = ro.drafts[draftKey()] || ''; $('ro-result').innerHTML = ''; renderRosterPreview(); loadOnFile(false); }
 $('ro-code').oninput = () => { ro.code = $('ro-code').value.trim(); saveRo(); clearTimeout(codeTimer); codeTimer = setTimeout(() => coachSync(true), 600); };
 $('ro-team-sel').onchange = () => { const v = $('ro-team-sel').value; $('ro-team').classList.toggle('hidden', v !== '__other');
   ro.team = v === '__other' ? $('ro-team').value.trim() : v; saveRo(); switchDraft(); };
@@ -310,13 +325,14 @@ $('ro-submit').onclick = async () => {
   const bad = rows.filter(r => rowProblem(r) === 'missing name' || rowProblem(r) === 'grade?'); if (bad.length) return toast(`Fix the ${bad.length} highlighted row${bad.length > 1 ? 's' : ''} first`, true);
   $('ro-submit').disabled = true;
   try { const j = await post({ action: 'roster_submit', code: ro.code, team: ro.team, race: ro.race, runners: rows });
-    showRosterOnFile(j.roster, `Submitted — ${ro.team}, ${ro.race}. Bibs:`); toast('Roster submitted ✓'); coachSync(true); }
+    showRosterOnFile(j.roster.filter(r => r.race === ro.race), `Submitted — ${ro.team}, ${ro.race}. Bibs:`); toast('Roster submitted ✓'); coachSync(true); loadOnFile(true); }
   catch (e) { toast('Could not submit: ' + e.message, true); }
   finally { $('ro-submit').disabled = false; }
 };
-$('ro-load').onclick = async () => { if (!ro.team) return toast('Choose your team', true);
-  try { const mine = await get({ action: 'coach', code: ro.code, team: ro.team, key: undefined }); showRosterOnFile(mine.roster, `On file for ${ro.team}:`); }
-  catch (e) { toast(e.message, true); } };
+$('ro-load').onclick = () => { if (!ro.team || !ro.race) return toast('Choose your team and race', true);
+  const current = $('ro-paste').value.trim(), onFile = roOnFile.map(r => r.grade ? `${r.name}, ${r.grade}` : r.name).join('\n');
+  if (current && current !== onFile) return armed($('ro-load'), 'Tap again to discard your edits', () => loadOnFile(true));
+  loadOnFile(true); };
 $('link-roster').onclick = e => { e.preventDefault(); show('roster'); };
 
 // ---------- MEET SETUP (director) ----------
