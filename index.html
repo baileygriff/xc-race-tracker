@@ -46,7 +46,7 @@
 
   <!-- ROSTER (coaches) -->
   <section id="view-roster" class="view hidden">
-    <p class="hint">Paste your roster from a spreadsheet, a text, anywhere. One runner per line. Check the list, fix anything wrong, then submit. Bibs are assigned on the spot.</p>
+    <p class="hint">Paste your roster, check the list, fix anything wrong, then submit. Bibs are assigned on the spot.</p>
     <div id="ro-code-wrap"><label>Coach code (the shared password from the meet director, not your name)<input id="ro-code" placeholder="e.g. tigers2026" autocomplete="off"></label></div>
     <label>Team / school
       <select id="ro-team-sel"></select>
@@ -54,7 +54,12 @@
     </label>
     <p class="hint" id="ro-team-status"></p>
     <label>Race<select id="ro-race"></select></label>
-    <label>Runners<textarea id="ro-paste" rows="6" placeholder="Jane Smith, 10&#10;Sam Lee 11&#10;Alex Kim"></textarea></label>
+    <label>Runners, one per line
+      <textarea id="ro-paste" rows="6" placeholder="Paste here"></textarea>
+    </label>
+    <p class="hint">Each line is the runner's name, then the grade if you have it. Any of these work:
+      <code>Jane Smith, 7</code> · <code>Jane Smith 7</code> · two columns copied from a spreadsheet · just <code>Jane Smith</code>.
+      A header line like "Name, Grade" is ignored.</p>
     <p class="hint" id="ro-file-status"></p>
     <div id="ro-preview"></div>
     <div class="row">

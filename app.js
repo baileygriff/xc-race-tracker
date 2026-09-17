@@ -10,10 +10,15 @@ const store = {
 };
 const settings = Object.assign({ race: '', device: '', endpoint: '', key: '', bibs: '' }, store.get('settings', {}));
 // A link can carry settings (?race=..&device=..&endpoint=..&key=..&mode=..) so each volunteer just opens what you text them.
+// They are applied once per distinct link, so a value later changed under ⚙ is not clobbered by reopening the same link.
 const qs = new URLSearchParams(location.search);
-for (const k of ['race', 'device', 'endpoint', 'key']) if (qs.get(k)) settings[k] = qs.get(k);
 const saveSettings = () => store.set('settings', settings);
+if (location.search && store.get('lastLink') !== location.search) {
+  for (const k of ['race', 'device', 'endpoint', 'key']) if (qs.get(k)) settings[k] = qs.get(k);
+  store.set('lastLink', location.search);
+}
 saveSettings();
+let sheetError = ''; // last reason the sheet could not be read, shown on the home screen
 const raceKey = () => (settings.race || '').trim();
 // Race data is keyed by race name, so switching races never touches another race's taps.
 const rd = {
@@ -80,16 +85,17 @@ async function get(params) {
 async function sendWithFeedback(btns, payload, what) {
   btns.forEach(b => { b.disabled = true; });
   try { const j = await post(payload); toast(`Sent ${what} to the sheet ✓` + (j.note ? ' — ' + j.note : ''), !!j.note); }
-  catch (e) { toast('Send failed: ' + e.message + '. Nothing is lost — try again or use Copy.', true); }
+  catch (e) { toast('Send failed: ' + explain(e) + '. Nothing is lost — try again or use Copy.', true); }
   finally { btns.forEach(b => { b.disabled = false; }); }
 }
+function explain(e) { return /passcode/i.test(e.message) ? 'Wrong passcode — fix it under ⚙ Settings' : e.message; }
 async function syncFromSheet(quiet) {
   try {
     const j = await get({ action: 'roster' });
-    roster = j.roster || []; races = j.races || []; store.set('roster', roster); store.set('races', races); store.set('lastSync', Date.now());
+    roster = j.roster || []; races = j.races || []; store.set('roster', roster); store.set('races', races); store.set('lastSync', Date.now()); sheetError = '';
     if (!quiet) toast(`Connected — ${races.length} races, ${roster.length} bibs loaded`);
     return true;
-  } catch (e) { if (!quiet) toast('Could not reach the sheet: ' + e.message, true); return false; }
+  } catch (e) { sheetError = explain(e); if (!quiet) toast('Sheet: ' + sheetError, true); return false; }
 }
 
 // ---------- HOME ----------
@@ -103,7 +109,7 @@ function renderHome() {
   $('home-device').value = settings.device;
   const d = settings.race ? rd.get() : null;
   const last = store.get('lastSync'); 
-  $('home-status').textContent = (settings.endpoint ? (last ? `Sheet: ${roster.length} bibs loaded ${new Date(last).toLocaleTimeString([], {timeStyle:'short'})}` : 'Sheet: not reached yet') : 'Sheet: not set up (⚙)') +
+  $('home-status').innerHTML = (!settings.endpoint ? 'Sheet: not set up (⚙)' : sheetError ? `<span class="flag">⚠ Sheet: ${sheetError}</span>` : last ? `Sheet: ${roster.length} bibs loaded ${new Date(last).toLocaleTimeString([], {timeStyle:'short'})}` : 'Sheet: not reached yet') +
     (d && (d.laps.length || d.finishers.length) ? ` · this phone has ${d.laps.length} times / ${d.finishers.length} finishers for ${settings.race}` : '');
 }
 $('home-race').onchange = () => { const v = $('home-race').value; $('home-race-other').classList.toggle('hidden', v !== '__other');
@@ -176,7 +182,7 @@ $('btn-fin-send').onclick = () => { const p = finPayload(); if (!p.entries.lengt
   sendWithFeedback([$('btn-fin-send')], p, p.entries.length + ' places'); };
 $('btn-fin-copy').onclick = () => copyText(`PLACES ${raceKey()} (${settings.device})\n` + rd.get().finishers.map((b, i) => `${i + 1}\t${b}`).join('\n'));
 $('btn-roster-refresh').onclick = async () => { const before = bibsForRace().length; if (await syncFromSheet(true)) { renderFinishers();
-  toast(`Bib list reloaded: ${bibsForRace().length} bibs for ${raceKey()}` + (before === bibsForRace().length ? ' (no change)' : '')); } else toast('Could not reach the sheet — keeping the bibs already on this phone', true); };
+  toast(`Bib list reloaded: ${bibsForRace().length} bibs for ${raceKey()}` + (before === bibsForRace().length ? ' (no change)' : '')); } else toast(`Sheet: ${sheetError}. Keeping the bibs already on this phone.`, true); };
 $('btn-fin-reset').onclick = () => armed($('btn-fin-reset'), 'Tap again to erase ALL finishers', () => { const d = rd.get(); d.finishers = []; rd.set(d); renderFinishers(); toast('Finishers reset'); });
 $('fin-list').onclick = e => { const li = e.target.closest('li'); if (li) openEdit('finishers', +li.dataset.i); };
 
@@ -221,7 +227,7 @@ async function loadResults() {
     h += '<h3>Individual</h3><table><tr><th>#</th><th>Bib</th><th>Name</th><th>Team</th><th>Time</th><th></th></tr>' +
       (j.results || []).map(r => `<tr class="${r.flags ? 'flagged' : ''}"><td>${r.pos}</td><td>${r.bib || ''}</td><td>${r.name || ''}</td><td>${r.team || ''}</td><td>${r.time || ''}</td><td class="flag">${r.flags || ''}</td></tr>`).join('') + '</table>';
     $('results-out').innerHTML = h;
-  } catch (e) { $('results-status').textContent = 'Could not load: ' + e.message; }
+  } catch (e) { $('results-status').textContent = 'Could not load: ' + explain(e); }
 }
 $('btn-results-refresh').onclick = loadResults;
 
@@ -351,8 +357,9 @@ $('su-save').onclick = async () => {
   $('su-save').disabled = true;
   try { await post({ action: 'config_set', races: $('su-races').value.split('\n').map(x => x.trim()).filter(Boolean), teams: $('su-teams').value.split('\n').map(x => x.trim()).filter(Boolean),
       coach_code: $('su-coach').value.trim(), passcode: $('su-pass').value.trim() || undefined });
-    if ($('su-pass').value.trim()) { settings.key = $('su-pass').value.trim(); saveSettings(); }
-    toast('Meet setup saved ✓'); await syncFromSheet(true); renderSetup(true); }
+    const newPass = $('su-pass').value.trim();
+    if (newPass) { settings.key = newPass; saveSettings(); }
+    toast(newPass ? 'Saved ✓ — every other phone must enter the new passcode under ⚙ Settings' : 'Meet setup saved ✓', !!newPass); await syncFromSheet(true); renderSetup(true); }
   catch (e) { toast('Could not save: ' + e.message, true); }
   finally { $('su-save').disabled = false; }
 };
