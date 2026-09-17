@@ -3,6 +3,7 @@
 const http = require('http'), fs = require('fs'), path = require('path');
 const { load } = require('./fakesheets');
 const { ctx, sheets } = load();
+const PORT = +process.env.PORT || 8765;
 ctx.setup(); ctx.setConfig('races', 'Boys, Girls'); ctx.setConfig('passcode', '1234'); ctx.setConfig('coach_code', 'coach');
 
 // Seed a roster the way importRoster would: 5 teams, 8 boys and 7 girls each, plus one unattached runner.
@@ -38,10 +39,10 @@ http.createServer((req, res) => {
   const f = path.join(root, url.pathname === '/' ? 'index.html' : url.pathname);
   if (!f.startsWith(root) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) return send(404, 'text/plain', 'not found');
   send(200, MIME[path.extname(f)] || 'application/octet-stream', fs.readFileSync(f));
-}).listen(8765, () => {
-  const ep = encodeURIComponent('http://localhost:8765/api');
+}).listen(PORT, () => {
+  const ep = encodeURIComponent(`http://localhost:${PORT}/api`);
   console.log(`Demo running (passcode 1234).
-  App:       http://localhost:8765/index.html?endpoint=${ep}&key=1234
-  Coach:     http://localhost:8765/index.html?page=roster&endpoint=${ep}&code=coach
-  Sheet:     http://localhost:8765/sheet`);
+  App:       http://localhost:${PORT}/index.html?endpoint=${ep}&key=1234
+  Coach:     http://localhost:${PORT}/index.html?page=roster&endpoint=${ep}&code=coach
+  Sheet:     http://localhost:${PORT}/sheet`);
 });
