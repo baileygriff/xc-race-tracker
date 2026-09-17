@@ -47,11 +47,12 @@
   <!-- ROSTER (coaches) -->
   <section id="view-roster" class="view hidden">
     <p class="hint">Paste your roster from a spreadsheet, a text, anywhere. One runner per line. Check the list, fix anything wrong, then submit. Bibs are assigned on the spot.</p>
-    <label>Coach code<input id="ro-code" placeholder="From the meet director" autocomplete="off"></label>
+    <div id="ro-code-wrap"><label>Coach code (the shared password from the meet director, not your name)<input id="ro-code" placeholder="e.g. tigers2026" autocomplete="off"></label></div>
     <label>Team / school
       <select id="ro-team-sel"></select>
       <input id="ro-team" class="hidden" placeholder="Type your team name" autocomplete="off">
     </label>
+    <p class="hint" id="ro-team-status"></p>
     <label>Race<select id="ro-race"></select></label>
     <label>Runners<textarea id="ro-paste" rows="6" placeholder="Jane Smith, 10&#10;Sam Lee 11&#10;Alex Kim"></textarea></label>
     <div id="ro-preview"></div>

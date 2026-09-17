@@ -247,8 +247,11 @@ function parseRoster(text) {
   return rows;
 }
 function rowProblem(r) { if (!r.name) return 'missing name'; if (r.grade && !(+r.grade >= 5 && +r.grade <= 12)) return 'grade?'; if (!/\s/.test(r.name)) return 'one word — full name?'; return ''; }
+let codeRejected = false;
 function renderRoster() {
   $('ro-code').value = ro.code;
+  $('ro-code-wrap').classList.toggle('hidden', !!qs.get('code') && !codeRejected); // the link carries the code; only show it if the sheet says it is wrong
+  $('ro-team-status').textContent = '';
   const tsel = $('ro-team-sel'); const known = roTeams.includes(ro.team);
   tsel.innerHTML = '<option value="">Choose your team…</option>' + roTeams.map(t => `<option>${t}</option>`).join('') + '<option value="__other">Not listed (type it)…</option>';
   tsel.value = ro.team && !known ? '__other' : ro.team;
@@ -260,14 +263,20 @@ function renderRoster() {
   renderRosterPreview();
 }
 async function coachSync(quiet) {
+  $('ro-team-status').textContent = 'Loading teams from the sheet…';
   try { const j = await get({ action: 'coach', code: ro.code, key: undefined });
+    codeRejected = false; $('ro-code-wrap').classList.toggle('hidden', !!qs.get('code'));
     races = j.races || []; store.set('races', races); roTeams = j.teams || []; store.set('teams', roTeams);
+    $('ro-team-status').textContent = roTeams.length ? `${roTeams.length} teams loaded from the sheet` : 'The meet director has not entered any teams yet — pick “Not listed” and type yours';
     const tsel = $('ro-team-sel'); const known = roTeams.includes(ro.team);
     tsel.innerHTML = '<option value="">Choose your team…</option>' + roTeams.map(t => `<option>${t}</option>`).join('') + '<option value="__other">Not listed (type it)…</option>';
     tsel.value = ro.team && !known ? '__other' : ro.team;
     const sel = $('ro-race'); sel.innerHTML = '<option value="">Choose a race…</option>' + races.map(r => `<option>${r}</option>`).join(''); sel.value = ro.race; return j; }
-  catch (e) { if (!quiet) toast(e.message, true); }
+  catch (e) { codeRejected = /coach code/i.test(e.message); $('ro-code-wrap').classList.remove('hidden');
+    $('ro-team-status').innerHTML = `<span class="flag">⚠ ${codeRejected ? 'Wrong coach code — check with the meet director' : 'Could not reach the sheet: ' + e.message}</span>`;
+    if (!quiet) toast(e.message, true); }
 }
+let codeTimer;
 const previewHint = () => { const bad = roRows.filter(rowProblem).length; return `${roRows.length} runners${bad ? `, <span class="flag">${bad} to check</span>` : ''}. Edit any cell.`; };
 function renderRosterPreview() {
   roRows = parseRoster($('ro-paste').value);
@@ -286,7 +295,7 @@ $('ro-preview').oninput = e => { const t = e.target; if (!t.dataset.f) return; c
 $('ro-preview').onclick = e => { const b = e.target.closest('[data-del]'); if (!b) return; roRows.splice(+b.dataset.del, 1);
   ro.drafts[draftKey()] = rowsToText(); $('ro-paste').value = ro.drafts[draftKey()]; saveRo(); renderRosterPreview(); };
 function switchDraft() { $('ro-paste').value = ro.drafts[draftKey()] || ''; $('ro-result').innerHTML = ''; renderRosterPreview(); }
-$('ro-code').oninput = () => { ro.code = $('ro-code').value.trim(); saveRo(); };
+$('ro-code').oninput = () => { ro.code = $('ro-code').value.trim(); saveRo(); clearTimeout(codeTimer); codeTimer = setTimeout(() => coachSync(true), 600); };
 $('ro-team-sel').onchange = () => { const v = $('ro-team-sel').value; $('ro-team').classList.toggle('hidden', v !== '__other');
   ro.team = v === '__other' ? $('ro-team').value.trim() : v; saveRo(); switchDraft(); };
 $('ro-team').oninput = () => { ro.team = $('ro-team').value.trim(); saveRo(); switchDraft(); };
