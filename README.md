@@ -21,17 +21,27 @@ The two apps never depend on each other. If one phone dies, the other list is st
 1. Create a blank Google Sheet. **Extensions → Apps Script.** Delete the sample code, paste
    `apps-script/Code.gs`, save.
 2. Run `setup` (pick it in the function dropdown, press ▶). Approve the permissions prompt.
-3. Back in the sheet, open the **Config** tab and set a `passcode` (volunteers) and a `coach_code`
-   (coaches). Everything else about the meet is set from the app in the next step.
+3. Back in the sheet, open the **Config** tab and put something in `director_code`. Everything else
+   about the meet, including the volunteer and coach codes, is set from the app in the next step.
 4. **Deploy → New deployment → type: Web app.** Execute as **Me**, who has access **Anyone**.
    Copy the URL ending in `/exec`. That is the endpoint the phones talk to.
    (Any later edit to the script needs **Deploy → Manage deployments → edit → New version**.)
 
 ### 2. The meet
 Open the app's **Meet setup** page (link at the bottom of the home screen, or
-`index.html?page=setup&endpoint=...&key=<passcode>`). Enter the races and the list of teams, and
-change the codes if you like. Coaches then pick their team from that list. The page also shows how
-many runners each team has submitted per race.
+`index.html?page=setup&endpoint=...&dkey=<director_code>`). Enter the races, the list of teams, and
+the three codes. Coaches then pick their team from that list. The page also shows how many runners
+each team has submitted per race.
+
+**Three codes, three doors.** Each is a shared password that rides inside the link you send, so
+people normally never type it, and it is what the sheet checks on every request. Without one, anyone
+who found the script URL could write results. Change a code and the old links stop working.
+
+| code | opens |
+|---|---|
+| volunteer | Timer, Finishers, Results |
+| coach | the roster page |
+| director | Meet setup, and everything above |
 
 ### 3. The roster
 Send coaches the roster link:
@@ -54,13 +64,13 @@ Host the folder anywhere static (GitHub Pages is free; see below) and text each 
 with their job baked in:
 
 ```
-https://<your-host>/index.html?endpoint=https://script.google.com/macros/s/.../exec&key=<passcode>
+https://<your-host>/index.html?endpoint=https://script.google.com/macros/s/.../exec&key=<volunteer_code>
 ```
 (`&race=Boys&device=Sam&mode=timer` can be added to pre-fill those too.)
 
 On the phone: open the link once **while online**, then **Share → Add to Home Screen** (iPhone) or
 the browser's **Install app / Add to Home screen** (Android). From then on it opens without signal.
-The home screen picks the race and the volunteer's name; ⚙ holds the endpoint and passcode. Each
+The home screen picks the race and the volunteer's name; ⚙ holds the endpoint and volunteer code. Each
 race's taps are kept separately, so switching races between heats loses nothing.
 
 ## Race day

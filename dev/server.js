@@ -1,10 +1,10 @@
 // Local demo: serves the app and pretends to be the Google Sheet. `node dev/server.js`, then open
-// the App link it prints (the demo passcode is 1234)
+// the links it prints (codes: volunteer 1234, coach "coach", director "director")
 const http = require('http'), fs = require('fs'), path = require('path');
 const { load } = require('./fakesheets');
 const { ctx, sheets } = load();
 const PORT = +process.env.PORT || 8765;
-ctx.setup(); ctx.setConfig('races', 'Boys, Girls'); ctx.setConfig('passcode', '1234'); ctx.setConfig('coach_code', 'coach');
+ctx.setup(); ctx.setConfig('races', 'Boys, Girls'); ctx.setConfig('volunteer_code', '1234'); ctx.setConfig('coach_code', 'coach'); ctx.setConfig('director_code', 'director');
 
 // Seed: 3 schools, 5 boys and 5 girls each, grades 6-8, the way coaches would have submitted them.
 ctx.setConfig('teams', 'Exploris, Magellan, Cary Christian');
@@ -45,8 +45,9 @@ http.createServer((req, res) => {
   send(200, MIME[path.extname(f)] || 'application/octet-stream', fs.readFileSync(f));
 }).listen(PORT, () => {
   const ep = encodeURIComponent(`http://localhost:${PORT}/api`);
-  console.log(`Demo running (passcode 1234).
-  App:       http://localhost:${PORT}/index.html?endpoint=${ep}&key=1234
-  Coach:     http://localhost:${PORT}/index.html?page=roster&endpoint=${ep}&code=coach
-  Sheet:     http://localhost:${PORT}/sheet`);
+  console.log(`Demo running. Codes: volunteer 1234, coach "coach", director "director".
+  Volunteers: http://localhost:${PORT}/index.html?endpoint=${ep}&key=1234
+  Coaches:    http://localhost:${PORT}/index.html?page=roster&endpoint=${ep}&code=coach
+  Director:   http://localhost:${PORT}/index.html?page=setup&endpoint=${ep}&key=1234&dkey=director
+  Sheet:      http://localhost:${PORT}/sheet`);
 });

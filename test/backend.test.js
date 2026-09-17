@@ -3,7 +3,7 @@ const assert = require('assert');
 const { ctx, sheets } = require('../dev/fakesheets').load();
 
 ctx.setup();
-ctx.setConfig('passcode', 'pc');
+ctx.setConfig('volunteer_code', 'pc'); ctx.setConfig('director_code', 'dc');
 sheets.Roster.rows.push(['A','a1','','Boys','101'],['A','a2','','Boys','202'],['A','a3','','Boys','303'],['A','a4','','Boys','404'],['A','a5','','Boys','505'],['A','a6','','Boys','606'],
   ['B','b1','','Boys','111'],['B','b2','','Boys','222'],['B','b3','','Boys','333'],['B','b4','','Boys','444'],['B','b5','','Boys','555'],
   ['C','c1','','Boys','777'], ['D','d1','','Girls','']);
@@ -15,8 +15,9 @@ bibs.slice(0,-1).forEach(b => assert.ok([0,1,2].filter(i=>b[i]!==newBib[i]).leng
 
 const post = body => ctx.doPost({ postData:{ contents: JSON.stringify(Object.assign({ key:'pc' }, body)) } });
 // passcode
-assert.match(ctx.doGet({parameter:{action:'roster'}}).error, /passcode/);
-assert.match(ctx.doPost({ postData:{ contents: JSON.stringify({ key:'nope', role:'timer', race:'Boys', device:'x', entries:[] }) } }).error, /passcode/);
+assert.match(ctx.doGet({parameter:{action:'roster'}}).error, /volunteer code/);
+assert.match(ctx.doPost({ postData:{ contents: JSON.stringify({ key:'nope', role:'timer', race:'Boys', device:'x', entries:[] }) } }).error, /volunteer code/);
+assert.ok(ctx.doGet({parameter:{action:'roster', key:'dc'}}).ok); // the director's code opens the volunteer door too
 assert.ok(ctx.doGet({parameter:{action:'roster', key:'pc'}}).ok);
 
 // finish order: c1, b1, a1, a2, b2, b3, a3, a4, b4, a5, b5, a6, unknown
@@ -66,6 +67,7 @@ assert.strictEqual(ctx.doGet({parameter:{action:'roster', key:'pc'}}).roster.len
 ctx.setConfig('coach_code', 'cc');
 const coach = body => ctx.doPost({ postData:{ contents: JSON.stringify(Object.assign({ action:'roster_submit', code:'cc' }, body)) } });
 assert.match(ctx.doPost({ postData:{ contents: JSON.stringify({ action:'roster_submit', code:'pc', team:'E', race:'Girls', runners:[{name:'e1'}] }) } }).error, /coach code/);
+assert.match(coach({ team:'E', race:'Girls', runners:[{name:'Same Kid'},{name:'same kid'}] }).error, /listed twice/);
 let cr = coach({ team:'E', race:'Girls', runners:[{name:'Ella One', grade:'9'},{name:'Emma Two', grade:''}] });
 assert.ok(cr.ok, cr.error); assert.strictEqual(cr.roster.length, 2); cr.roster.forEach(r => assert.match(r.bib, /^\d{3}$/));
 const ellaBib = cr.roster.find(r => r.name === 'Ella One').bib;
@@ -79,11 +81,12 @@ const cg = ctx.doGet({ parameter:{ action:'coach', code:'cc', team:'E' } });
 assert.ok(cg.teams.includes('E') && cg.roster.length === 2);
 
 // meet setup: read and change races/teams/codes; a team entered by the director shows for coaches before any roster exists
-let cfg = ctx.doGet({ parameter:{ action:'config', key:'pc' } });
+assert.match(ctx.doGet({ parameter:{ action:'config', key:'pc' } }).error, /director code/); // volunteers cannot open meet setup
+let cfg = ctx.doGet({ parameter:{ action:'config', key:'dc' } });
 assert.strictEqual(cfg.races.join(), 'Boys,Girls'); assert.ok(cfg.rosters.find(t => t.team === 'E' && t.counts.Girls === 2)); assert.strictEqual(cfg.teams.length, 0);
-cfg = ctx.doPost({ postData:{ contents: JSON.stringify({ action:'config_set', key:'pc', races:['Boys', 'Girls', 'Open'], teams:'Zeta High', coach_code:'cc2' }) } });
+cfg = ctx.doPost({ postData:{ contents: JSON.stringify({ action:'config_set', key:'dc', races:['Boys', 'Girls', 'Open'], teams:'Zeta High', coach_code:'cc2' }) } });
 assert.ok(cfg.ok, cfg.error); assert.strictEqual(cfg.races.length, 3); assert.strictEqual(cfg.teams.join(), 'Zeta High');
 const ct = ctx.doGet({ parameter:{ action:'coach', code:'cc2' } }).teams; assert.ok(ct.includes('Zeta High') && ct.includes('E')); // director's list plus teams with rosters
-assert.match(ctx.doPost({ postData:{ contents: JSON.stringify({ action:'config_set', key:'pc', races:'' }) } }).error, /At least one race/);
-assert.strictEqual(ctx.doGet({ parameter:{ action:'config', key:'pc' } }).passcode, 'pc'); // blank passcode in a save leaves it alone
+assert.match(ctx.doPost({ postData:{ contents: JSON.stringify({ action:'config_set', key:'dc', races:'' }) } }).error, /At least one race/);
+assert.strictEqual(ctx.doGet({ parameter:{ action:'config', key:'dc' } }).volunteer_code, 'pc'); // a blank code in a save leaves it alone
 console.log('backend tests pass');

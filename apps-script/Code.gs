@@ -23,12 +23,12 @@ function setup() {
     if (sh.getLastRow() === 0) { sh.appendRow(hdr); sh.setFrozenRows(1); sh.getRange(1, 1, 1, hdr.length).setFontWeight('bold'); }
   });
   const cfg = ss.getSheetByName('Config');
-  if (cfg.getLastRow() < 2) cfg.getRange(2, 1, 6, 2).setValues([
+  if (cfg.getLastRow() < 2) cfg.getRange(2, 1, 7, 2).setValues([
     ['races', 'Boys, Girls'],
-    ['passcode', ''], ['coach_code', ''], ['teams', ''],
-    ['note', 'Edit these from the app (Meet setup page) or here. races/teams: comma separated. passcode: volunteers. coach_code: coaches (falls back to passcode).']]);
+    ['volunteer_code', ''], ['coach_code', ''], ['director_code', ''], ['teams', ''],
+    ['note', 'Edit these from the app (Meet setup page) or here. Three codes: volunteer (timer/finishers/results), coach (roster page), director (meet setup; also opens everything else).']]);
   const first = ss.getSheets()[0]; if (first.getName() === 'Sheet1' && first.getLastRow() === 0) ss.deleteSheet(first);
-  Logger.log('Setup done. Now fill in Config (races, passcode, coach_code) and deploy as a web app.');
+  Logger.log('Setup done. Now put a director_code in Config and deploy as a web app; the rest is set from the app.');
 }
 function config(key) {
   const rows = SS().getSheetByName('Config').getDataRange().getValues();
@@ -40,9 +40,11 @@ function setConfig(key, value) {
   if (i >= 0) sh.getRange(i + 1, 2).setValue(value); else sh.appendRow([key, value]);
 }
 const races = () => config('races').split(',').map(s => s.trim()).filter(Boolean);
-/** Every request must carry the meet passcode from Config (unless none is set). */
-function checkKey(key) { const want = config('passcode').trim(); if (want && String(key || '').trim() !== want) throw new Error('Wrong meet passcode'); }
-function checkCoachCode(code) { const want = (config('coach_code') || config('passcode')).trim(); if (want && String(code || '').trim() !== want) throw new Error('Wrong coach code'); }
+/** Three codes. The director's opens everything; a blank code in Config means that door is open. */
+const codeIs = (given, ...keys) => { const wants = keys.map(k => config(k).trim()).filter(Boolean); return !wants.length || wants.includes(String(given || '').trim()); };
+function checkVolunteer(key) { if (!codeIs(key, 'volunteer_code', 'director_code')) throw new Error('Wrong volunteer code'); }
+function checkCoach(code) { if (!codeIs(code, 'coach_code', 'director_code')) throw new Error('Wrong coach code'); }
+function checkDirector(key) { if (!codeIs(key, 'director_code')) throw new Error('Wrong director code'); }
 
 /** A coach's pasted roster for one team + race. Replaces that team's rows for the race, keeping bibs
  *  already assigned to runners with the same name, then assigns bibs to the new ones. */
@@ -52,6 +54,8 @@ function submitRoster(p) {
   if (!races().includes(race)) throw new Error('Unknown race ' + race);
   const runners = (p.runners || []).map(r => ({ name: String(r.name || '').trim(), grade: String(r.grade || '').trim() })).filter(r => r.name);
   if (!runners.length) throw new Error('No runners');
+  const names = new Set(); const dup = runners.find(r => { const k = r.name.toLowerCase(); if (names.has(k)) return true; names.add(k); });
+  if (dup) throw new Error(`"${dup.name}" is listed twice`);
   const sh = SS().getSheetByName('Roster'); const data = sh.getDataRange().getValues();
   const mine = r => String(r[0]).trim().toLowerCase() === team.toLowerCase() && String(r[3]).trim() === race;
   const seen = data.slice(1).find(r => String(r[0]).trim().toLowerCase() === team.toLowerCase()); if (seen) team = String(seen[0]).trim(); // keep the spelling already on file
@@ -72,14 +76,13 @@ function teamsList() {
 /** Everything the meet director can change from the app. `teams` is exactly the list on file; `rosters` is who has submitted. */
 function meetConfig() {
   const counts = {}; rosterList().forEach(r => { counts[r.team] = counts[r.team] || {}; counts[r.team][r.race] = (counts[r.team][r.race] || 0) + 1; });
-  return { races: races(), coach_code: config('coach_code'), passcode: config('passcode'), teams: splitList(config('teams')),
+  return { races: races(), volunteer_code: config('volunteer_code'), coach_code: config('coach_code'), director_code: config('director_code'), teams: splitList(config('teams')),
     rosters: Object.keys(counts).sort((a, b) => a.localeCompare(b)).map(t => ({ team: t, counts: counts[t] })) };
 }
 function setMeetConfig(p) {
   if (p.races !== undefined) { const r = splitList(Array.isArray(p.races) ? p.races.join(',') : p.races); if (!r.length) throw new Error('At least one race is needed'); setConfig('races', r.join(', ')); }
   if (p.teams !== undefined) setConfig('teams', splitList(Array.isArray(p.teams) ? p.teams.join(',') : p.teams).join(', '));
-  if (p.coach_code !== undefined) setConfig('coach_code', String(p.coach_code).trim());
-  if (p.passcode !== undefined && String(p.passcode).trim()) setConfig('passcode', String(p.passcode).trim());
+  ['volunteer_code', 'coach_code', 'director_code'].forEach(k => { if (p[k] !== undefined && String(p[k]).trim()) setConfig(k, String(p[k]).trim()); }); // blank keeps the current one
   return meetConfig();
 }
 
@@ -110,10 +113,10 @@ function rosterList() {
 function doGet(e) {
   try {
     const p = e.parameter || {};
-    if (p.action === 'coach') { checkCoachCode(p.code); return json({ ok: true, races: races(), teams: teamsList(),
+    if (p.action === 'coach') { checkCoach(p.code); return json({ ok: true, races: races(), teams: teamsList(),
       roster: p.team ? rosterList().filter(r => r.team.toLowerCase() === String(p.team).toLowerCase()) : [] }); }
-    checkKey(p.key);
-    if (p.action === 'config') return json(Object.assign({ ok: true }, meetConfig()));
+    if (p.action === 'config') { checkDirector(p.key); return json(Object.assign({ ok: true }, meetConfig())); }
+    checkVolunteer(p.key);
     if (p.action === 'roster') return json({ ok: true, races: races(), roster: rosterList() });
     if (p.action === 'results') return json(Object.assign({ ok: true }, computeResults(p.race)));
     return json({ ok: true, ping: 'XC Race Tracker', races: races() });
@@ -123,9 +126,9 @@ function doPost(e) {
   const lock = LockService.getScriptLock(); lock.waitLock(20000);
   try {
     const p = JSON.parse(e.postData.contents);
-    if (p.action === 'roster_submit') { checkCoachCode(p.code); return json({ ok: true, roster: submitRoster(p) }); }
-    checkKey(p.key);
-    if (p.action === 'config_set') return json(Object.assign({ ok: true }, setMeetConfig(p)));
+    if (p.action === 'roster_submit') { checkCoach(p.code); return json({ ok: true, roster: submitRoster(p) }); }
+    if (p.action === 'config_set') { checkDirector(p.key); return json(Object.assign({ ok: true }, setMeetConfig(p))); }
+    checkVolunteer(p.key);
     if (!p.race || !p.role || !p.device || !Array.isArray(p.entries)) throw new Error('Missing race, role, device or entries');
     const now = new Date();
     const sheetName = p.role === 'timer' ? 'Times' : p.role === 'places' ? 'Places' : null;

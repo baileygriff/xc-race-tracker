@@ -35,12 +35,18 @@
 
   <!-- MEET SETUP (director) -->
   <section id="view-setup" class="view hidden">
-    <p class="hint">Saved to the sheet. Volunteers and coaches see changes the next time their app talks to the sheet.</p>
-    <label>Races, one per line<textarea id="su-races" rows="3" placeholder="Boys&#10;Girls"></textarea></label>
-    <label>Teams, one per line (coaches pick from this list)<textarea id="su-teams" rows="5" placeholder="Broughton&#10;Enloe"></textarea></label>
-    <label>Coach code (for the roster page)<input id="su-coach" autocomplete="off"></label>
-    <label>Volunteer passcode (leave blank to keep the current one)<input id="su-pass" autocomplete="off" placeholder="unchanged"></label>
-    <div class="row"><button id="su-save" class="primary">Save meet setup</button></div>
+    <div id="su-gate"><label>Director code<input id="su-dkey" autocomplete="off" placeholder="From the sheet's Config tab"></label></div>
+    <div id="su-body" class="hidden">
+      <p class="hint">Saved to the sheet. Volunteers and coaches see changes the next time their app talks to the sheet.</p>
+      <label>Races, one per line<textarea id="su-races" rows="3" placeholder="Boys&#10;Girls"></textarea></label>
+      <label>Teams, one per line (coaches pick from this list)<textarea id="su-teams" rows="5" placeholder="Broughton&#10;Enloe"></textarea></label>
+      <h3>Codes</h3>
+      <p class="hint">Each code is a shared password. It rides inside the link you send, so people normally never type it.</p>
+      <label>Volunteer code — timers, finish loggers, results<input id="su-volunteer" autocomplete="off"></label>
+      <label>Coach code — the roster page<input id="su-coach" autocomplete="off"></label>
+      <label>Director code — this page (and it opens everything else)<input id="su-director" autocomplete="off"></label>
+      <div class="row"><button id="su-save" class="primary">Save meet setup</button></div>
+    </div>
     <div id="su-status"></div>
   </section>
 
@@ -57,9 +63,14 @@
     <label>Runners, one per line
       <textarea id="ro-paste" rows="6" placeholder="Paste here"></textarea>
     </label>
-    <p class="hint">Each line is the runner's name, then the grade if you have it. Any of these work:
-      <code>Jane Smith, 7</code> · <code>Jane Smith 7</code> · two columns copied from a spreadsheet · just <code>Jane Smith</code>.
-      A header line like "Name, Grade" is ignored.</p>
+    <div class="hint">One runner per line: the name, then the grade if you have it. Any of these work:
+      <ul class="formats">
+        <li><code>Jane Smith, 7</code></li>
+        <li><code>Jane Smith 7</code></li>
+        <li><code>Jane Smith</code> (no grade)</li>
+        <li>Two columns copied straight from a spreadsheet</li>
+      </ul>
+      A header line such as "Name, Grade" is ignored. The same name twice is not allowed.</div>
     <p class="hint" id="ro-file-status"></p>
     <div id="ro-preview"></div>
     <div class="row">
@@ -129,7 +140,7 @@
   <!-- SETTINGS -->
   <section id="view-settings" class="view hidden">
     <label>Sheet endpoint URL<input id="set-endpoint" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off"></label>
-    <label>Meet passcode<input id="set-key" placeholder="Ask the meet director" autocomplete="off"></label>
+    <label>Volunteer code (a shared password from the meet director; the link you were sent fills it in)<input id="set-key" placeholder="Ask the meet director" autocomplete="off"></label>
     <label>Bibs for this race, only if they won't load from the sheet<textarea id="set-bibs" rows="2" placeholder="123 456 789"></textarea></label>
     <div class="row">
       <button id="btn-settings-save" class="primary">Save & check connection</button>

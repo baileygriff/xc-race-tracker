@@ -8,13 +8,13 @@ const store = {
   get(k, d) { try { const v = localStorage.getItem('xc.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem('xc.' + k, JSON.stringify(v)); } catch (e) { toast('Could not save: ' + e.message, true); } },
 };
-const settings = Object.assign({ race: '', device: '', endpoint: '', key: '', bibs: '' }, store.get('settings', {}));
+const settings = Object.assign({ race: '', device: '', endpoint: '', key: '', dkey: '', bibs: '' }, store.get('settings', {}));
 // A link can carry settings (?race=..&device=..&endpoint=..&key=..&mode=..) so each volunteer just opens what you text them.
 // They are applied once per distinct link, so a value later changed under ⚙ is not clobbered by reopening the same link.
 const qs = new URLSearchParams(location.search);
 const saveSettings = () => store.set('settings', settings);
 if (location.search && store.get('lastLink') !== location.search) {
-  for (const k of ['race', 'device', 'endpoint', 'key']) if (qs.get(k)) settings[k] = qs.get(k);
+  for (const k of ['race', 'device', 'endpoint', 'key', 'dkey']) if (qs.get(k)) settings[k] = qs.get(k);
   store.set('lastLink', location.search);
 }
 saveSettings();
@@ -88,7 +88,7 @@ async function sendWithFeedback(btns, payload, what) {
   catch (e) { toast('Send failed: ' + explain(e) + '. Nothing is lost — try again or use Copy.', true); }
   finally { btns.forEach(b => { b.disabled = false; }); }
 }
-function explain(e) { return /passcode/i.test(e.message) ? 'Wrong passcode — fix it under ⚙ Settings' : e.message; }
+function explain(e) { return /volunteer code/i.test(e.message) ? 'Wrong volunteer code — fix it under ⚙ Settings' : e.message; }
 async function syncFromSheet(quiet) {
   try {
     const j = await get({ action: 'roster' });
@@ -266,7 +266,7 @@ function parseRoster(text) {
   });
   return rows;
 }
-function rowProblem(r) { if (!r.name) return 'missing name'; if (r.grade && !(+r.grade >= 5 && +r.grade <= 12)) return 'grade?'; if (!/\s/.test(r.name)) return 'one word — full name?'; return ''; }
+function rowProblem(r, i) { if (!r.name) return 'missing name'; if (i !== undefined && roRows.findIndex(x => x.name.toLowerCase() === r.name.toLowerCase()) !== i) return 'listed twice'; if (r.grade && !(+r.grade >= 5 && +r.grade <= 12)) return 'grade?'; if (!/\s/.test(r.name)) return 'one word — full name?'; return ''; }
 let codeRejected = false;
 function renderRoster() {
   $('ro-code').value = ro.code;
@@ -297,20 +297,21 @@ async function coachSync(quiet) {
     if (!quiet) toast(e.message, true); }
 }
 let codeTimer;
-const previewHint = () => { const bad = roRows.filter(rowProblem).length; return `${roRows.length} runners${bad ? `, <span class="flag">${bad} to check</span>` : ''}. Edit any cell.`; };
+const previewHint = () => { const bad = roRows.filter((r, i) => rowProblem(r, i)).length; return `${roRows.length} runners${bad ? `, <span class="flag">${bad} to check</span>` : ''}. Edit any cell.`; };
 function renderRosterPreview() {
   roRows = parseRoster($('ro-paste').value);
   if (!roRows.length) return $('ro-preview').innerHTML = '';
   $('ro-preview').innerHTML = `<p class="hint">${previewHint()}</p>` +
-    '<table class="ro"><tr><th>Bib</th><th>Name</th><th>Grade</th><th></th></tr>' + roRows.map((r, i) => { const p = rowProblem(r); const bib = bibOnFile(r.name);
-      return `<tr><td class="ro-bib">${bib ? `<b>${bib}</b>` : '<span class="badge">new</span>'}</td><td class="${p ? 'bad' : ''}"><input data-i="${i}" data-f="name" value="${r.name.replace(/"/g, '&quot;')}" placeholder="${p || ''}"></td>` +
+    '<table class="ro"><tr><th>Bib</th><th>Name</th><th>Grade</th><th></th></tr>' + roRows.map((r, i) => { const p = rowProblem(r, i); const bib = bibOnFile(r.name);
+      return `<tr><td class="ro-bib">${bib ? `<b>${bib}</b>` : '<span class="badge">new</span>'}</td><td class="${p ? 'bad' : ''}"><input data-i="${i}" data-f="name" value="${r.name.replace(/"/g, '&quot;')}" placeholder="${p || ''}" title="${p || ''}"></td>` +
         `<td class="${p === 'grade?' ? 'bad' : ''}"><input data-i="${i}" data-f="grade" value="${r.grade}" inputmode="numeric" style="width:4em"></td><td><button class="x" data-del="${i}">✕</button></td></tr>`; }).join('') + '</table>';
 }
 const rowsToText = () => roRows.map(r => r.grade ? `${r.name}, ${r.grade}` : r.name).join('\n');
 $('ro-paste').oninput = () => { ro.drafts[draftKey()] = $('ro-paste').value; saveRo(); renderRosterPreview(); };
 $('ro-preview').oninput = e => { const t = e.target; if (!t.dataset.f) return; const i = +t.dataset.i; roRows[i][t.dataset.f] = t.value.trim();
-  ro.drafts[draftKey()] = rowsToText(); saveRo();
-  const p = rowProblem(roRows[i]); const tds = t.closest('tr').querySelectorAll('td'); tds[1].className = p ? 'bad' : ''; tds[2].className = p === 'grade?' ? 'bad' : '';
+  ro.drafts[draftKey()] = rowsToText(); $('ro-paste').value = ro.drafts[draftKey()]; saveRo(); // keep the text box in step with the table
+  const p = rowProblem(roRows[i], i); const tds = t.closest('tr').querySelectorAll('td'); tds[1].className = p ? 'bad' : ''; tds[2].className = p === 'grade?' ? 'bad' : '';
+  roRows.forEach((r, k) => { if (k !== i) { const row = $('ro-preview').querySelectorAll('tr')[k + 1]; row.querySelectorAll('td')[1].className = rowProblem(r, k) ? 'bad' : ''; } });
   const bib = bibOnFile(roRows[i].name); tds[0].innerHTML = bib ? `<b>${bib}</b>` : '<span class="badge">new</span>';
   $('ro-preview').querySelector('p').innerHTML = previewHint(); };
 $('ro-preview').onclick = e => { const b = e.target.closest('[data-del]'); if (!b) return; roRows.splice(+b.dataset.del, 1);
@@ -328,7 +329,7 @@ function showRosterOnFile(rows, title) {
 $('ro-submit').onclick = async () => {
   const rows = roRows.filter(r => r.name);
   if (!ro.team) return toast('Choose your team', true); if (!ro.race) return toast('Choose a race', true); if (!rows.length) return toast('Paste your runners first', true);
-  const bad = rows.filter(r => rowProblem(r) === 'missing name' || rowProblem(r) === 'grade?'); if (bad.length) return toast(`Fix the ${bad.length} highlighted row${bad.length > 1 ? 's' : ''} first`, true);
+  const bad = roRows.filter((r, i) => ['missing name', 'grade?', 'listed twice'].includes(rowProblem(r, i))); if (bad.length) return toast(`Fix the ${bad.length} highlighted row${bad.length > 1 ? 's' : ''} first (${rowProblem(bad[0], roRows.indexOf(bad[0]))})`, true);
   $('ro-submit').disabled = true;
   try { const j = await post({ action: 'roster_submit', code: ro.code, team: ro.team, race: ro.race, runners: rows });
     showRosterOnFile(j.roster.filter(r => r.race === ro.race), `Submitted — ${ro.team}, ${ro.race}. Bibs:`); toast('Roster submitted ✓'); coachSync(true); loadOnFile(true); }
@@ -344,23 +345,32 @@ $('link-roster').onclick = e => { e.preventDefault(); show('roster'); };
 // ---------- MEET SETUP (director) ----------
 let setupDirty = false;
 async function renderSetup(force) {
+  $('su-dkey').value = settings.dkey;
+  if (!settings.dkey) { $('su-body').classList.add('hidden'); $('su-status').textContent = 'Enter the director code to open meet setup.'; return; }
   $('su-status').textContent = 'Loading from the sheet…';
-  try { const c = await get({ action: 'config' });
-    if (force || !setupDirty) { $('su-races').value = c.races.join('\n'); $('su-teams').value = c.teams.join('\n'); $('su-coach').value = c.coach_code; $('su-pass').value = ''; setupDirty = false; }
-    $('su-status').innerHTML = `<p class="hint">Volunteer passcode is currently “${c.passcode || 'none'}”.</p>` + (c.rosters.length ? '<h3>Rosters on file</h3><table><tr><th>Team</th>' + c.races.map(r => `<th>${r}</th>`).join('') + '</tr>' +
+  try { const c = await get({ action: 'config', key: settings.dkey });
+    $('su-body').classList.remove('hidden');
+    if (force || !setupDirty) { $('su-races').value = c.races.join('\n'); $('su-teams').value = c.teams.join('\n');
+      $('su-volunteer').value = c.volunteer_code; $('su-coach').value = c.coach_code; $('su-director').value = c.director_code; setupDirty = false; }
+    $('su-status').innerHTML = (c.rosters.length ? '<h3>Rosters on file</h3><table><tr><th>Team</th>' + c.races.map(r => `<th>${r}</th>`).join('') + '</tr>' +
       c.rosters.map(t => `<tr><td>${t.team}${c.teams.includes(t.team) ? '' : ' <span class="badge">not in list</span>'}</td>${c.races.map(r => `<td>${t.counts[r] || ''}</td>`).join('')}</tr>`).join('') + '</table>' +
       '<p class="hint">A team with a roster on file stays available to its coach even if it is not in the list above.</p>' : '<p class="hint">No rosters submitted yet.</p>');
-  } catch (e) { $('su-status').textContent = 'Could not load: ' + e.message; }
+  } catch (e) { $('su-body').classList.add('hidden'); $('su-status').innerHTML = `<span class="flag">⚠ ${/director code/i.test(e.message) ? 'Wrong director code' : 'Could not load: ' + e.message}</span>`; }
 }
-['su-races', 'su-teams', 'su-coach', 'su-pass'].forEach(id => $(id).oninput = () => { setupDirty = true; });
+let dkeyTimer;
+$('su-dkey').oninput = () => { settings.dkey = $('su-dkey').value.trim(); saveSettings(); clearTimeout(dkeyTimer); dkeyTimer = setTimeout(() => renderSetup(false), 600); };
+['su-races', 'su-teams', 'su-volunteer', 'su-coach', 'su-director'].forEach(id => $(id).oninput = () => { setupDirty = true; });
 $('su-save').onclick = async () => {
   $('su-save').disabled = true;
-  try { await post({ action: 'config_set', races: $('su-races').value.split('\n').map(x => x.trim()).filter(Boolean), teams: $('su-teams').value.split('\n').map(x => x.trim()).filter(Boolean),
-      coach_code: $('su-coach').value.trim(), passcode: $('su-pass').value.trim() || undefined });
-    const newPass = $('su-pass').value.trim();
-    if (newPass) { settings.key = newPass; saveSettings(); }
-    toast(newPass ? 'Saved ✓ — every other phone must enter the new passcode under ⚙ Settings' : 'Meet setup saved ✓', !!newPass); await syncFromSheet(true); renderSetup(true); }
-  catch (e) { toast('Could not save: ' + e.message, true); }
+  const v = $('su-volunteer').value.trim(), c = $('su-coach').value.trim(), d = $('su-director').value.trim();
+  try { const before = await get({ action: 'config', key: settings.dkey });
+    await post({ action: 'config_set', key: settings.dkey, races: $('su-races').value.split('\n').map(x => x.trim()).filter(Boolean), teams: $('su-teams').value.split('\n').map(x => x.trim()).filter(Boolean),
+      volunteer_code: v, coach_code: c, director_code: d });
+    if (d) { settings.dkey = d; saveSettings(); }
+    const changed = [v && v !== before.volunteer_code ? 'volunteer' : '', c && c !== before.coach_code ? 'coach' : '', d && d !== before.director_code ? 'director' : ''].filter(Boolean);
+    toast(changed.length ? `Saved ✓ — the ${changed.join(', ')} code changed: send out new links, or have people update it under ⚙` : 'Meet setup saved ✓', !!changed.length);
+    await syncFromSheet(true); renderSetup(true); }
+  catch (e) { toast('Could not save: ' + explain(e), true); }
   finally { $('su-save').disabled = false; }
 };
 $('link-setup').onclick = e => { e.preventDefault(); show('setup'); };
