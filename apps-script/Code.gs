@@ -155,18 +155,18 @@ const TIME_TOLERANCE_MS = 1000; // two timers further apart than this on the sam
 function avg(a) { return Math.round(a.reduce((x, y) => x + y, 0) / a.length); }
 function fmtMs(ms) { const t = Math.round(ms / 100); return `${String(Math.floor(t / 600)).padStart(2, '0')}:${String(Math.floor(t / 10) % 60).padStart(2, '0')}.${t % 10}`; };
 /** Groups a sheet's rows for one race by device: { device: rows sorted by pos }, devices in alphabetical order. */
-function byDevice(sheetName, race, devCol) {
+function byDevice(sheetName, race, devCol, sortCol) {
   const out = {};
   SS().getSheetByName(sheetName).getDataRange().getValues().slice(1).filter(r => r[0] === race)
     .forEach(r => (out[r[devCol]] = out[r[devCol]] || []).push(r));
-  Object.values(out).forEach(rows => rows.sort((a, b) => a[1] - b[1]));
+  Object.values(out).forEach(rows => rows.sort((a, b) => a[sortCol] - b[sortCol]));
   return Object.fromEntries(Object.keys(out).sort().map(k => [k, out[k]]));
 }
 /** Merges every timer's and every finisher-logger's list by position. Time is the average of the timers;
  *  bib comes from the first logger (alphabetical) and the others are checked against it. */
 function computeResults(race) {
   race = race || '';
-  const times = byDevice('Times', race, 4), places = byDevice('Places', race, 3);
+  const times = byDevice('Times', race, 4, 2), places = byDevice('Places', race, 3, 1); // times by elapsed ms (finish order IS time order), places by position
   const byBib = {}; rosterList().forEach(r => byBib[r.bib] = r);
   const tDevs = Object.keys(times), pDevs = Object.keys(places);
   const counts = [...tDevs.map(d => times[d].length), ...pDevs.map(d => places[d].length)];

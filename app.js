@@ -193,7 +193,8 @@ function openEdit(role, i) {
   $('edit-title').textContent = `#${i + 1} — ${isT ? 'time' : 'bib'}`;
   $('edit-value').value = isT ? fmt(d.laps[i]) : d.finishers[i];
   $('edit-value').type = 'text'; $('edit-value').inputMode = isT ? 'decimal' : 'numeric';
-  $('edit-hint').textContent = isT ? 'Minutes:seconds.tenths, e.g. 18:42.3' : 'A bib number from this race, or ??? for no bib';
+  $('edit-hint').textContent = isT ? 'Minutes:seconds.tenths, e.g. 18:42.3. The list re-sorts by time after any change.' : 'A bib number from this race, or ??? for no bib';
+  $('edit-before').classList.toggle('hidden', isT); $('edit-after').classList.toggle('hidden', isT); $('edit-add').classList.toggle('hidden', !isT);
   $('edit').classList.remove('hidden'); $('edit-value').focus();
 }
 function closeEdit() { edit = null; $('edit').classList.add('hidden'); }
@@ -203,9 +204,12 @@ function editValue() {
   if (v === '???') return v;
   if (!bibsForRace().includes(v)) { toast(`Bib ${v} is not in this race`, true); return undefined; } return v;
 }
-function editApply(fn) { const d = rd.get(); const list = edit.role === 'timer' ? d.laps : d.finishers; fn(list); rd.set(d); closeEdit();
+function editApply(fn) { const d = rd.get(); const list = edit.role === 'timer' ? d.laps : d.finishers; fn(list); if (edit.role === 'timer') d.laps.sort((a, b) => a - b); rd.set(d); closeEdit();
   renderTimer(); renderFinishers(); }
-$('edit-save').onclick = () => { const v = editValue(); if (v === undefined) return; editApply(l => l[edit.i] = v); toast('Saved'); };
+$('edit-save').onclick = () => { const v = editValue(); if (v === undefined) return; const isT = edit.role === 'timer', i = edit.i; const d = rd.get(); const newPos = isT ? d.laps.filter((_, k) => k !== i).filter(ms => ms < v).length + 1 : null;
+  editApply(l => l[i] = v); toast(isT && newPos !== i + 1 ? `Saved — that time moved to #${newPos}` : 'Saved'); };
+$('edit-add').onclick = () => { const v = editValue(); if (v === undefined) return; const d = rd.get(); const pos = d.laps.filter(ms => ms < v).length + 1;
+  editApply(l => l.push(v)); toast(`Added as #${pos} — everyone after moved down one`); };
 $('edit-before').onclick = () => { const v = editValue(); if (v === undefined) return; editApply(l => l.splice(edit.i, 0, v)); toast('Inserted — everyone after moved down one'); };
 $('edit-after').onclick = () => { const v = editValue(); if (v === undefined) return; editApply(l => l.splice(edit.i + 1, 0, v)); toast('Inserted — everyone after moved down one'); };
 $('edit-delete').onclick = () => armed($('edit-delete'), 'Tap again to delete', () => { editApply(l => l.splice(edit.i, 1)); toast('Deleted — everyone after moved up one'); });
@@ -318,6 +322,8 @@ $('ro-preview').onclick = e => { const b = e.target.closest('[data-del]'); if (!
   ro.drafts[draftKey()] = rowsToText(); $('ro-paste').value = ro.drafts[draftKey()]; saveRo(); renderRosterPreview(); };
 function switchDraft() { $('ro-paste').value = ro.drafts[draftKey()] || ''; $('ro-result').innerHTML = ''; renderRosterPreview(); loadOnFile(false); }
 $('ro-code').oninput = () => { ro.code = $('ro-code').value.trim(); saveRo(); clearTimeout(codeTimer); codeTimer = setTimeout(() => coachSync(true), 600); };
+$('ro-team-sel').onfocus = () => { if (navigator.onLine) coachSync(true); };
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && !$('view-roster').classList.contains('hidden')) coachSync(true); });
 $('ro-team-sel').onchange = () => { const v = $('ro-team-sel').value; $('ro-team').classList.toggle('hidden', v !== '__other');
   ro.team = v === '__other' ? $('ro-team').value.trim() : v; saveRo(); switchDraft(); };
 $('ro-team').oninput = () => { ro.team = $('ro-team').value.trim(); saveRo(); switchDraft(); };
@@ -352,9 +358,10 @@ async function renderSetup(force) {
     $('su-body').classList.remove('hidden');
     if (force || !setupDirty) { $('su-races').value = c.races.join('\n'); $('su-teams').value = c.teams.join('\n');
       $('su-volunteer').value = c.volunteer_code; $('su-coach').value = c.coach_code; $('su-director').value = c.director_code; setupDirty = false; }
-    $('su-status').innerHTML = (c.rosters.length ? '<h3>Rosters on file</h3><table><tr><th>Team</th>' + c.races.map(r => `<th>${r}</th>`).join('') + '</tr>' +
-      c.rosters.map(t => `<tr><td>${t.team}${c.teams.includes(t.team) ? '' : ' <span class="badge">not in list</span>'}</td>${c.races.map(r => `<td>${t.counts[r] || ''}</td>`).join('')}</tr>`).join('') + '</table>' +
-      '<p class="hint">A team with a roster on file stays available to its coach even if it is not in the list above.</p>' : '<p class="hint">No rosters submitted yet.</p>');
+    const all = [...c.teams, ...c.rosters.map(t => t.team).filter(t => !c.teams.includes(t))]; const counts = Object.fromEntries(c.rosters.map(t => [t.team, t.counts]));
+    $('su-status').innerHTML = (all.length ? '<h3>Teams and runners on file</h3><table><tr><th>Team</th>' + c.races.map(r => `<th>${r}</th>`).join('') + '</tr>' +
+      all.map(t => `<tr><td>${t}${c.teams.includes(t) ? '' : ' <span class="badge">not in list</span>'}</td>${c.races.map(r => `<td>${(counts[t] || {})[r] || '<span style="color:var(--muted)">—</span>'}</td>`).join('')}</tr>`).join('') + '</table>' +
+      '<p class="hint">A team with a roster on file stays available to its coach even if it is removed from the list above.</p>' : '<p class="hint">No teams yet.</p>');
   } catch (e) { $('su-body').classList.add('hidden'); $('su-status').innerHTML = `<span class="flag">⚠ ${/director code/i.test(e.message) ? 'Wrong director code' : 'Could not load: ' + e.message}</span>`; }
 }
 let dkeyTimer;

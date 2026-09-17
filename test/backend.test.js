@@ -89,4 +89,8 @@ assert.ok(cfg.ok, cfg.error); assert.strictEqual(cfg.races.length, 3); assert.st
 const ct = ctx.doGet({ parameter:{ action:'coach', code:'cc2' } }).teams; assert.ok(ct.includes('Zeta High') && ct.includes('E')); // director's list plus teams with rosters
 assert.match(ctx.doPost({ postData:{ contents: JSON.stringify({ action:'config_set', key:'dc', races:'' }) } }).error, /At least one race/);
 assert.strictEqual(ctx.doGet({ parameter:{ action:'config', key:'dc' } }).volunteer_code, 'pc'); // a blank code in a save leaves it alone
+
+// a time corrected out of order on the phone is still placed by time in the sheet
+post({ role:'timer', race:'Girls', device:'T', entries:[{pos:1, ms:100000, time:'01:40.0'},{pos:2, ms:90000, time:'01:30.0'},{pos:3, ms:110000, time:'01:50.0'}] });
+const g = ctx.computeResults('Girls'); assert.strictEqual(g.results.map(r => r.time).join(), '01:30.0,01:40.0,01:50.0');
 console.log('backend tests pass');
