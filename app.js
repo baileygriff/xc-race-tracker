@@ -311,21 +311,23 @@ $('ro-load').onclick = async () => { if (!ro.team) return toast('Choose your tea
 $('link-roster').onclick = e => { e.preventDefault(); show('roster'); };
 
 // ---------- MEET SETUP (director) ----------
-async function renderSetup() {
-  $('su-status').textContent = 'Loading from the sheet…'; $('su-pass').value = '';
+let setupDirty = false;
+async function renderSetup(force) {
+  $('su-status').textContent = 'Loading from the sheet…';
   try { const c = await get({ action: 'config' });
-    $('su-races').value = c.races.join('\n'); $('su-teams').value = c.teams.map(t => t.team).join('\n'); $('su-coach').value = c.coach_code;
-    const onFile = c.teams.filter(t => Object.keys(t.counts).length);
-    $('su-status').innerHTML = `<p class="hint">Volunteer passcode is currently “${c.passcode || 'none'}”.</p>` + (onFile.length ? '<h3>Rosters on file</h3><table><tr><th>Team</th>' + c.races.map(r => `<th>${r}</th>`).join('') + '</tr>' +
-      onFile.map(t => `<tr><td>${t.team}</td>${c.races.map(r => `<td>${t.counts[r] || ''}</td>`).join('')}</tr>`).join('') + '</table>' : '<p class="hint">No rosters submitted yet.</p>');
+    if (force || !setupDirty) { $('su-races').value = c.races.join('\n'); $('su-teams').value = c.teams.join('\n'); $('su-coach').value = c.coach_code; $('su-pass').value = ''; setupDirty = false; }
+    $('su-status').innerHTML = `<p class="hint">Volunteer passcode is currently “${c.passcode || 'none'}”.</p>` + (c.rosters.length ? '<h3>Rosters on file</h3><table><tr><th>Team</th>' + c.races.map(r => `<th>${r}</th>`).join('') + '</tr>' +
+      c.rosters.map(t => `<tr><td>${t.team}${c.teams.includes(t.team) ? '' : ' <span class="badge">not in list</span>'}</td>${c.races.map(r => `<td>${t.counts[r] || ''}</td>`).join('')}</tr>`).join('') + '</table>' +
+      '<p class="hint">A team with a roster on file stays available to its coach even if it is not in the list above.</p>' : '<p class="hint">No rosters submitted yet.</p>');
   } catch (e) { $('su-status').textContent = 'Could not load: ' + e.message; }
 }
+['su-races', 'su-teams', 'su-coach', 'su-pass'].forEach(id => $(id).oninput = () => { setupDirty = true; });
 $('su-save').onclick = async () => {
   $('su-save').disabled = true;
   try { await post({ action: 'config_set', races: $('su-races').value.split('\n').map(x => x.trim()).filter(Boolean), teams: $('su-teams').value.split('\n').map(x => x.trim()).filter(Boolean),
       coach_code: $('su-coach').value.trim(), passcode: $('su-pass').value.trim() || undefined });
     if ($('su-pass').value.trim()) { settings.key = $('su-pass').value.trim(); saveSettings(); }
-    toast('Meet setup saved ✓'); await syncFromSheet(true); renderSetup(); }
+    toast('Meet setup saved ✓'); await syncFromSheet(true); renderSetup(true); }
   catch (e) { toast('Could not save: ' + e.message, true); }
   finally { $('su-save').disabled = false; }
 };

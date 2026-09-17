@@ -64,15 +64,16 @@ function submitRoster(p) {
   return rosterList().filter(r => r.team.toLowerCase() === team.toLowerCase() && r.race === race);
 }
 const splitList = v => String(v || '').split(',').map(x => x.trim()).filter(Boolean);
+/** Teams coaches can pick from: the director's list, plus any team that already has a roster on file. */
 function teamsList() {
   const fromRoster = SS().getSheetByName('Roster').getDataRange().getValues().slice(1).map(r => String(r[0]).trim()).filter(Boolean);
   return [...new Set([...splitList(config('teams')), ...fromRoster])].sort((a, b) => a.localeCompare(b));
 }
-/** Everything the meet director can change from the app. */
+/** Everything the meet director can change from the app. `teams` is exactly the list on file; `rosters` is who has submitted. */
 function meetConfig() {
   const counts = {}; rosterList().forEach(r => { counts[r.team] = counts[r.team] || {}; counts[r.team][r.race] = (counts[r.team][r.race] || 0) + 1; });
-  return { races: races(), coach_code: config('coach_code'), passcode: config('passcode'),
-    teams: teamsList().map(t => ({ team: t, counts: counts[t] || {} })) };
+  return { races: races(), coach_code: config('coach_code'), passcode: config('passcode'), teams: splitList(config('teams')),
+    rosters: Object.keys(counts).sort((a, b) => a.localeCompare(b)).map(t => ({ team: t, counts: counts[t] })) };
 }
 function setMeetConfig(p) {
   if (p.races !== undefined) { const r = splitList(Array.isArray(p.races) ? p.races.join(',') : p.races); if (!r.length) throw new Error('At least one race is needed'); setConfig('races', r.join(', ')); }

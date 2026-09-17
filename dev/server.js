@@ -6,14 +6,18 @@ const { ctx, sheets } = load();
 const PORT = +process.env.PORT || 8765;
 ctx.setup(); ctx.setConfig('races', 'Boys, Girls'); ctx.setConfig('passcode', '1234'); ctx.setConfig('coach_code', 'coach');
 
-// Seed a roster the way importRoster would: 5 teams, 8 boys and 7 girls each, plus one unattached runner.
-const teams = ['Broughton', 'Enloe', 'Leesville', 'Millbrook', 'Sanderson'];
-const first = ['Ava','Ben','Cora','Dev','Eli','Fay','Gus','Hana','Ivy','Jon','Kai','Lia','Max','Nia','Oli','Pia'];
-const seed = [];
-teams.forEach((t, ti) => { for (let i = 0; i < 8; i++) seed.push([t, `${first[(ti*3+i)%16]} ${t[0]}${i+1}`, 9 + i % 4, 'Boys', '']);
-                            for (let i = 0; i < 7; i++) seed.push([t, `${first[(ti*5+i+2)%16]} ${t[0]}${i+1}`, 9 + i % 4, 'Girls', '']); });
-seed.push(['Unattached', 'Solo Runner', 11, 'Boys', '']);
-seed.forEach(r => sheets.Roster.rows.push(r));
+// Seed: 3 schools, 5 boys and 5 girls each, grades 6-8, the way coaches would have submitted them.
+ctx.setConfig('teams', 'Exploris, Magellan, Cary Christian');
+const seed = {
+  Exploris: { Boys: ['Owen Hartley 6', 'Miles Okafor 7', 'Theo Lindqvist 8', 'Jasper Nguyen 6', 'Rowan Delgado 8'],
+              Girls: ['Nora Whitfield 7', 'Priya Raman 8', 'Elise Marchetti 6', 'Harper Sato 7', 'Maeve Callahan 8'] },
+  Magellan: { Boys: ['Caleb Ferreira 8', 'Ezra Blackwood 6', 'Luca Petrov 7', 'Silas Moreno 8', 'Finn Adebayo 6'],
+              Girls: ['Ivy Castellano 8', 'Zara Holloway 6', 'Lena Fitzgerald 7', 'Amara Osei 8', 'Ruby Thornton 7'] },
+  'Cary Christian': { Boys: ['Nathan Kowalski 7', 'Eli Brennan 6', 'Isaac Tran 8', 'Gabriel Sandoval 7', 'Micah Ellery 8'],
+                      Girls: ['Abigail Foster 6', 'Claire Whitaker 8', 'Hannah Reyes 7', 'Sophie Lindgren 6', 'Grace Mbeki 8'] },
+};
+Object.entries(seed).forEach(([team, byRace]) => Object.entries(byRace).forEach(([race, names]) =>
+  names.forEach(n => { const m = n.match(/^(.*) (\d)$/); sheets.Roster.rows.push([team, m[1], +m[2], race, '']); })));
 ctx.assignBibs();
 
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png' };
