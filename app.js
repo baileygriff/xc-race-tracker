@@ -303,15 +303,15 @@ function renderRosterPreview() {
   if (!roRows.length) return $('ro-preview').innerHTML = '';
   $('ro-preview').innerHTML = `<p class="hint">${previewHint()}</p>` +
     '<table class="ro"><tr><th>Bib</th><th>Name</th><th>Grade</th><th></th></tr>' + roRows.map((r, i) => { const p = rowProblem(r, i); const bib = bibOnFile(r.name);
-      return `<tr><td class="ro-bib">${bib ? `<b>${bib}</b>` : '<span class="badge">new</span>'}</td><td class="${p ? 'bad' : ''}"><input data-i="${i}" data-f="name" value="${r.name.replace(/"/g, '&quot;')}" placeholder="${p || ''}" title="${p || ''}"></td>` +
+      return `<tr><td class="ro-bib">${bib ? `<b>${bib}</b>` : '<span class="badge">new</span>'}</td><td class="${p ? 'bad' : ''}"><input data-i="${i}" data-f="name" value="${r.name.replace(/"/g, '&quot;')}"><small class="flag why">${p}</small></td>` +
         `<td class="${p === 'grade?' ? 'bad' : ''}"><input data-i="${i}" data-f="grade" value="${r.grade}" inputmode="numeric" style="width:4em"></td><td><button class="x" data-del="${i}">✕</button></td></tr>`; }).join('') + '</table>';
 }
 const rowsToText = () => roRows.map(r => r.grade ? `${r.name}, ${r.grade}` : r.name).join('\n');
 $('ro-paste').oninput = () => { ro.drafts[draftKey()] = $('ro-paste').value; saveRo(); renderRosterPreview(); };
 $('ro-preview').oninput = e => { const t = e.target; if (!t.dataset.f) return; const i = +t.dataset.i; roRows[i][t.dataset.f] = t.value.trim();
   ro.drafts[draftKey()] = rowsToText(); $('ro-paste').value = ro.drafts[draftKey()]; saveRo(); // keep the text box in step with the table
-  const p = rowProblem(roRows[i], i); const tds = t.closest('tr').querySelectorAll('td'); tds[1].className = p ? 'bad' : ''; tds[2].className = p === 'grade?' ? 'bad' : '';
-  roRows.forEach((r, k) => { if (k !== i) { const row = $('ro-preview').querySelectorAll('tr')[k + 1]; row.querySelectorAll('td')[1].className = rowProblem(r, k) ? 'bad' : ''; } });
+  const mark = (row, k) => { const q = rowProblem(roRows[k], k); const tds = row.querySelectorAll('td'); tds[1].className = q ? 'bad' : ''; tds[1].querySelector('.why').textContent = q; tds[2].className = q === 'grade?' ? 'bad' : ''; };
+  $('ro-preview').querySelectorAll('tr').forEach((row, k) => { if (k) mark(row, k - 1); });
   const bib = bibOnFile(roRows[i].name); tds[0].innerHTML = bib ? `<b>${bib}</b>` : '<span class="badge">new</span>';
   $('ro-preview').querySelector('p').innerHTML = previewHint(); };
 $('ro-preview').onclick = e => { const b = e.target.closest('[data-del]'); if (!b) return; roRows.splice(+b.dataset.del, 1);
