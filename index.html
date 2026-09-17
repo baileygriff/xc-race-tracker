@@ -30,14 +30,28 @@
     <button class="mode" data-mode="timer">⏱ Timer<small>Press LAP as each runner crosses the line</small></button>
     <button class="mode" data-mode="finishers">🏃 Finishers<small>Tap each bib number in chute order</small></button>
     <button class="mode" data-mode="results">🏆 Results<small>Merged results, flags and team scores</small></button>
-    <p class="hint"><a href="#" id="link-roster">Coach? Submit your roster here.</a></p>
+    <p class="hint"><a href="#" id="link-roster">Coach? Submit your roster here.</a> &nbsp;·&nbsp; <a href="#" id="link-setup">Meet director? Set up races and teams.</a></p>
+  </section>
+
+  <!-- MEET SETUP (director) -->
+  <section id="view-setup" class="view hidden">
+    <p class="hint">Saved to the sheet. Volunteers and coaches see changes the next time their app talks to the sheet.</p>
+    <label>Races, one per line<textarea id="su-races" rows="3" placeholder="Boys&#10;Girls"></textarea></label>
+    <label>Teams, one per line (coaches pick from this list)<textarea id="su-teams" rows="5" placeholder="Broughton&#10;Enloe"></textarea></label>
+    <label>Coach code (for the roster page)<input id="su-coach" autocomplete="off"></label>
+    <label>Volunteer passcode (leave blank to keep the current one)<input id="su-pass" autocomplete="off" placeholder="unchanged"></label>
+    <div class="row"><button id="su-save" class="primary">Save meet setup</button></div>
+    <div id="su-status"></div>
   </section>
 
   <!-- ROSTER (coaches) -->
   <section id="view-roster" class="view hidden">
     <p class="hint">Paste your roster from a spreadsheet, a text, anywhere. One runner per line. Check the list, fix anything wrong, then submit. Bibs are assigned on the spot.</p>
     <label>Coach code<input id="ro-code" placeholder="From the meet director" autocomplete="off"></label>
-    <label>Team / school<input id="ro-team" list="ro-teams" placeholder="e.g. Broughton" autocomplete="off"><datalist id="ro-teams"></datalist></label>
+    <label>Team / school
+      <select id="ro-team-sel"></select>
+      <input id="ro-team" class="hidden" placeholder="Type your team name" autocomplete="off">
+    </label>
     <label>Race<select id="ro-race"></select></label>
     <label>Runners<textarea id="ro-paste" rows="6" placeholder="Jane Smith, 10&#10;Sam Lee 11&#10;Alex Kim"></textarea></label>
     <div id="ro-preview"></div>

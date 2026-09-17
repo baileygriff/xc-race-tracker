@@ -77,4 +77,13 @@ assert.strictEqual(sheets.Roster.rows.filter(r => String(r[0]).toLowerCase() ===
 assert.match(coach({ team:'E', race:'Mixed', runners:[{name:'x y'}] }).error, /Unknown race/);
 const cg = ctx.doGet({ parameter:{ action:'coach', code:'cc', team:'E' } });
 assert.ok(cg.teams.includes('E') && cg.roster.length === 2);
+
+// meet setup: read and change races/teams/codes; a team entered by the director shows for coaches before any roster exists
+let cfg = ctx.doGet({ parameter:{ action:'config', key:'pc' } });
+assert.strictEqual(cfg.races.join(), 'Boys,Girls'); assert.ok(cfg.teams.find(t => t.team === 'E' && t.counts.Girls === 2));
+cfg = ctx.doPost({ postData:{ contents: JSON.stringify({ action:'config_set', key:'pc', races:['Boys', 'Girls', 'Open'], teams:'Zeta High', coach_code:'cc2' }) } });
+assert.ok(cfg.ok, cfg.error); assert.strictEqual(cfg.races.length, 3); assert.ok(cfg.teams.find(t => t.team === 'Zeta High'));
+assert.ok(ctx.doGet({ parameter:{ action:'coach', code:'cc2' } }).teams.includes('Zeta High'));
+assert.match(ctx.doPost({ postData:{ contents: JSON.stringify({ action:'config_set', key:'pc', races:'' }) } }).error, /At least one race/);
+assert.strictEqual(ctx.doGet({ parameter:{ action:'config', key:'pc' } }).passcode, 'pc'); // blank passcode in a save leaves it alone
 console.log('backend tests pass');

@@ -36,7 +36,6 @@ button.small { font-size: 14px; padding: 10px; }
 .list li .pos { color: var(--muted); width: 3em; }
 .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
 .bib { min-width: 0; padding: 0; aspect-ratio: 1.6; font-size: 28px; font-weight: 800; background: var(--panel); border: 2px solid var(--gray); font-variant-numeric: tabular-nums; }
-.bib.done { opacity: .25; }
 .bib.unknown { color: var(--amber); }
 input, textarea { width: 100%; font: inherit; padding: 12px; border-radius: 10px; border: 1px solid var(--gray); background: var(--panel); color: var(--text); user-select: text; -webkit-user-select: text; }
 input[type=tel] { font-size: 22px; }

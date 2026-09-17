@@ -1,6 +1,6 @@
 /* XC Race Tracker — one page, three jobs. Every tap is saved on the phone at once.
    Sending is optional and repeatable: the sheet replaces this phone's earlier data for the same race and job. */
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 const $ = id => document.getElementById(id);
 
 // ---------- storage ----------
@@ -36,15 +36,15 @@ function armed(btn, label, fn) {
   btn.dataset.armed = setTimeout(() => disarm(btn), 3000);
 }
 function disarm(btn) { if (!btn.dataset.armed) return; btn.innerHTML = btn.dataset.label; btn.classList.remove('armed'); delete btn.dataset.armed; }
-const TITLES = { home: 'XC Race Tracker', timer: 'Timer', finishers: 'Finishers', results: 'Results', settings: 'Settings', roster: 'Roster' };
+const TITLES = { home: 'XC Race Tracker', timer: 'Timer', finishers: 'Finishers', results: 'Results', settings: 'Settings', roster: 'Roster', setup: 'Meet setup' };
 function show(view) {
   document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
   $('view-' + view).classList.remove('hidden');
   $('hdr-title').textContent = TITLES[view];
-  $('hdr-race').textContent = view === 'home' || view === 'roster' ? '' : [settings.race, settings.device].filter(Boolean).join(' · ');
+  $('hdr-race').textContent = view === 'home' || view === 'roster' || view === 'setup' ? '' : [settings.race, settings.device].filter(Boolean).join(' · ');
   $('btn-back').classList.toggle('hidden', view === 'home');
   store.set('view', view);
-  ({ home: renderHome, timer: renderTimer, finishers: renderFinishers, results: loadResults, settings: renderSettings, roster: renderRoster })[view]();
+  ({ home: renderHome, timer: renderTimer, finishers: renderFinishers, results: loadResults, settings: renderSettings, roster: renderRoster, setup: renderSetup })[view]();
   window.scrollTo(0, 0);
 }
 function fmt(ms) {
@@ -156,7 +156,7 @@ function renderFinishers() {
   const all = bibsForRace(); const bibs = all.filter(b => !filter || b.includes(filter));
   $('bib-grid').innerHTML = !all.length
     ? `<p class="hint">No bibs for “${raceKey()}” on this phone yet. Tap “Reload bib list” (needs signal), or type them under ⚙ Settings.</p>`
-    : bibs.map(b => `<button class="bib${done.has(b) ? ' done' : ''}" data-bib="${b}">${b}</button>`).join('') || '<p class="hint">No bib matches</p>';
+    : bibs.filter(b => !done.has(b)).map(b => `<button class="bib" data-bib="${b}">${b}</button>`).join('') || `<p class="hint">${filter ? 'No bib matches' : 'Every bib has finished'}</p>`;
   $('fin-list').innerHTML = d.finishers.map((b, i) =>
     `<li data-i="${i}"><span class="pos">${i + 1}</span><span>${b === '???' ? '<span class="badge bad">no bib</span>' : b} <small style="color:var(--muted)">${nameFor(b)}</small></span></li>`).reverse().join('');
 }
@@ -226,9 +226,12 @@ async function loadResults() {
 $('btn-results-refresh').onclick = loadResults;
 
 // ---------- ROSTER (coaches paste, check, submit) ----------
-const ro = Object.assign({ code: '', team: '', race: '', paste: '' }, store.get('roster-form', {}));
+const ro = Object.assign({ code: '', team: '', race: '', drafts: {} }, store.get('roster-form', {}));
 if (qs.get('code')) ro.code = qs.get('code');
+let roTeams = store.get('teams', []);
 let roRows = []; // [{name, grade}]
+const draftKey = () => `${ro.team.toLowerCase()}|${ro.race}`;
+const saveRo = () => store.set('roster-form', ro);
 /** Turns pasted text into rows. Accepts tabs, commas or runs of spaces between fields; a 1–2 digit field is the grade. */
 function parseRoster(text) {
   const rows = [];
@@ -245,41 +248,56 @@ function parseRoster(text) {
 }
 function rowProblem(r) { if (!r.name) return 'missing name'; if (r.grade && !(+r.grade >= 5 && +r.grade <= 12)) return 'grade?'; if (!/\s/.test(r.name)) return 'one word — full name?'; return ''; }
 function renderRoster() {
-  $('ro-code').value = ro.code; $('ro-team').value = ro.team; $('ro-paste').value = ro.paste;
+  $('ro-code').value = ro.code;
+  const tsel = $('ro-team-sel'); const known = roTeams.includes(ro.team);
+  tsel.innerHTML = '<option value="">Choose your team…</option>' + roTeams.map(t => `<option>${t}</option>`).join('') + '<option value="__other">Not listed (type it)…</option>';
+  tsel.value = ro.team && !known ? '__other' : ro.team;
+  $('ro-team').classList.toggle('hidden', tsel.value !== '__other'); $('ro-team').value = known ? '' : ro.team;
   const sel = $('ro-race'); sel.innerHTML = '<option value="">Choose a race…</option>' + races.map(r => `<option>${r}</option>`).join(''); sel.value = ro.race;
-  if (!races.length && settings.endpoint) coachSync(true);
+  $('ro-paste').value = ro.drafts[draftKey()] || '';
+  $('ro-result').innerHTML = '';
+  if (settings.endpoint) coachSync(true);
   renderRosterPreview();
 }
 async function coachSync(quiet) {
-  try { const j = await get({ action: 'coach', code: ro.code, key: undefined }); races = j.races || []; store.set('races', races);
-    $('ro-teams').innerHTML = (j.teams || []).map(t => `<option>${t}</option>`).join('');
+  try { const j = await get({ action: 'coach', code: ro.code, key: undefined });
+    races = j.races || []; store.set('races', races); roTeams = j.teams || []; store.set('teams', roTeams);
+    const tsel = $('ro-team-sel'); const known = roTeams.includes(ro.team);
+    tsel.innerHTML = '<option value="">Choose your team…</option>' + roTeams.map(t => `<option>${t}</option>`).join('') + '<option value="__other">Not listed (type it)…</option>';
+    tsel.value = ro.team && !known ? '__other' : ro.team;
     const sel = $('ro-race'); sel.innerHTML = '<option value="">Choose a race…</option>' + races.map(r => `<option>${r}</option>`).join(''); sel.value = ro.race; return j; }
   catch (e) { if (!quiet) toast(e.message, true); }
 }
+const previewHint = () => { const bad = roRows.filter(rowProblem).length; return `${roRows.length} runners${bad ? `, <span class="flag">${bad} to check</span>` : ''}. Edit any cell.`; };
 function renderRosterPreview() {
   roRows = parseRoster($('ro-paste').value);
   if (!roRows.length) return $('ro-preview').innerHTML = '';
-  const bad = roRows.filter(rowProblem).length;
-  $('ro-preview').innerHTML = `<p class="hint">${roRows.length} runners${bad ? `, <span class="flag">${bad} to check</span>` : ''}. Edit any cell.</p>` +
+  $('ro-preview').innerHTML = `<p class="hint">${previewHint()}</p>` +
     '<table class="ro"><tr><th>#</th><th>Name</th><th>Grade</th><th></th></tr>' + roRows.map((r, i) => { const p = rowProblem(r);
       return `<tr><td>${i + 1}</td><td class="${p ? 'bad' : ''}"><input data-i="${i}" data-f="name" value="${r.name.replace(/"/g, '&quot;')}" placeholder="${p || ''}"></td>` +
         `<td class="${p === 'grade?' ? 'bad' : ''}"><input data-i="${i}" data-f="grade" value="${r.grade}" inputmode="numeric" style="width:4em"></td><td><button class="x" data-del="${i}">✕</button></td></tr>`; }).join('') + '</table>';
 }
-$('ro-paste').oninput = () => { ro.paste = $('ro-paste').value; store.set('roster-form', ro); renderRosterPreview(); };
+const rowsToText = () => roRows.map(r => r.grade ? `${r.name}, ${r.grade}` : r.name).join('\n');
+$('ro-paste').oninput = () => { ro.drafts[draftKey()] = $('ro-paste').value; saveRo(); renderRosterPreview(); };
 $('ro-preview').oninput = e => { const t = e.target; if (!t.dataset.f) return; const i = +t.dataset.i; roRows[i][t.dataset.f] = t.value.trim();
-  ro.paste = roRows.map(r => r.grade ? `${r.name}, ${r.grade}` : r.name).join('\n'); store.set('roster-form', ro);
+  ro.drafts[draftKey()] = rowsToText(); saveRo();
   const p = rowProblem(roRows[i]); const tds = t.closest('tr').querySelectorAll('td'); tds[1].className = p ? 'bad' : ''; tds[2].className = p === 'grade?' ? 'bad' : '';
-  const bad = roRows.filter(rowProblem).length; $('ro-preview').querySelector('p').innerHTML = `${roRows.length} runners${bad ? `, <span class="flag">${bad} to check</span>` : ''}. Edit any cell.`; };
+  $('ro-preview').querySelector('p').innerHTML = previewHint(); };
 $('ro-preview').onclick = e => { const b = e.target.closest('[data-del]'); if (!b) return; roRows.splice(+b.dataset.del, 1);
-  ro.paste = roRows.map(r => r.grade ? `${r.name}, ${r.grade}` : r.name).join('\n'); $('ro-paste').value = ro.paste; store.set('roster-form', ro); renderRosterPreview(); };
-['code', 'team', 'race'].forEach(f => $('ro-' + f).oninput = () => { ro[f] = $('ro-' + f).value.trim(); store.set('roster-form', ro); });
+  ro.drafts[draftKey()] = rowsToText(); $('ro-paste').value = ro.drafts[draftKey()]; saveRo(); renderRosterPreview(); };
+function switchDraft() { $('ro-paste').value = ro.drafts[draftKey()] || ''; $('ro-result').innerHTML = ''; renderRosterPreview(); }
+$('ro-code').oninput = () => { ro.code = $('ro-code').value.trim(); saveRo(); };
+$('ro-team-sel').onchange = () => { const v = $('ro-team-sel').value; $('ro-team').classList.toggle('hidden', v !== '__other');
+  ro.team = v === '__other' ? $('ro-team').value.trim() : v; saveRo(); switchDraft(); };
+$('ro-team').oninput = () => { ro.team = $('ro-team').value.trim(); saveRo(); switchDraft(); };
+$('ro-race').onchange = () => { ro.race = $('ro-race').value; saveRo(); switchDraft(); };
 function showRosterOnFile(rows, title) {
   $('ro-result').innerHTML = `<h3>${title}</h3>` + (rows.length ? '<table><tr><th>Bib</th><th>Name</th><th>Grade</th><th>Race</th></tr>' +
     rows.map(r => `<tr><td><b>${r.bib}</b></td><td>${r.name}</td><td>${r.grade || ''}</td><td>${r.race}</td></tr>`).join('') + '</table>' : '<p class="hint">Nothing on file for this team yet.</p>');
 }
 $('ro-submit').onclick = async () => {
   const rows = roRows.filter(r => r.name);
-  if (!ro.team) return toast('Enter your team name', true); if (!ro.race) return toast('Choose a race', true); if (!rows.length) return toast('Paste your runners first', true);
+  if (!ro.team) return toast('Choose your team', true); if (!ro.race) return toast('Choose a race', true); if (!rows.length) return toast('Paste your runners first', true);
   const bad = rows.filter(r => rowProblem(r) === 'missing name' || rowProblem(r) === 'grade?'); if (bad.length) return toast(`Fix the ${bad.length} highlighted row${bad.length > 1 ? 's' : ''} first`, true);
   $('ro-submit').disabled = true;
   try { const j = await post({ action: 'roster_submit', code: ro.code, team: ro.team, race: ro.race, runners: rows });
@@ -287,9 +305,31 @@ $('ro-submit').onclick = async () => {
   catch (e) { toast('Could not submit: ' + e.message, true); }
   finally { $('ro-submit').disabled = false; }
 };
-$('ro-load').onclick = async () => { if (!ro.team) return toast('Enter your team name', true);
-  const j = await coachSync(false); if (j) { const mine = await get({ action: 'coach', code: ro.code, team: ro.team, key: undefined }); showRosterOnFile(mine.roster, `On file for ${ro.team}:`); } };
+$('ro-load').onclick = async () => { if (!ro.team) return toast('Choose your team', true);
+  try { const mine = await get({ action: 'coach', code: ro.code, team: ro.team, key: undefined }); showRosterOnFile(mine.roster, `On file for ${ro.team}:`); }
+  catch (e) { toast(e.message, true); } };
 $('link-roster').onclick = e => { e.preventDefault(); show('roster'); };
+
+// ---------- MEET SETUP (director) ----------
+async function renderSetup() {
+  $('su-status').textContent = 'Loading from the sheet…'; $('su-pass').value = '';
+  try { const c = await get({ action: 'config' });
+    $('su-races').value = c.races.join('\n'); $('su-teams').value = c.teams.map(t => t.team).join('\n'); $('su-coach').value = c.coach_code;
+    const onFile = c.teams.filter(t => Object.keys(t.counts).length);
+    $('su-status').innerHTML = `<p class="hint">Volunteer passcode is currently “${c.passcode || 'none'}”.</p>` + (onFile.length ? '<h3>Rosters on file</h3><table><tr><th>Team</th>' + c.races.map(r => `<th>${r}</th>`).join('') + '</tr>' +
+      onFile.map(t => `<tr><td>${t.team}</td>${c.races.map(r => `<td>${t.counts[r] || ''}</td>`).join('')}</tr>`).join('') + '</table>' : '<p class="hint">No rosters submitted yet.</p>');
+  } catch (e) { $('su-status').textContent = 'Could not load: ' + e.message; }
+}
+$('su-save').onclick = async () => {
+  $('su-save').disabled = true;
+  try { await post({ action: 'config_set', races: $('su-races').value.split('\n').map(x => x.trim()).filter(Boolean), teams: $('su-teams').value.split('\n').map(x => x.trim()).filter(Boolean),
+      coach_code: $('su-coach').value.trim(), passcode: $('su-pass').value.trim() || undefined });
+    if ($('su-pass').value.trim()) { settings.key = $('su-pass').value.trim(); saveSettings(); }
+    toast('Meet setup saved ✓'); await syncFromSheet(true); renderSetup(); }
+  catch (e) { toast('Could not save: ' + e.message, true); }
+  finally { $('su-save').disabled = false; }
+};
+$('link-setup').onclick = e => { e.preventDefault(); show('setup'); };
 
 // ---------- SETTINGS / NAV ----------
 function renderSettings() { $('set-endpoint').value = settings.endpoint; $('set-key').value = settings.key; $('set-bibs').value = settings.bibs; }
@@ -307,5 +347,5 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catc
 (async () => {
   if (settings.endpoint && navigator.onLine) await syncFromSheet(true);
   const start = qs.get('mode') || store.get('view', 'home');
-  if (qs.get('page') === 'roster' && settings.endpoint) show('roster'); else if (!settings.endpoint) show('settings'); else if (start !== 'home' && start !== 'settings' && settings.race && (settings.device || start === 'results')) show(start); else show('home');
+  if ((qs.get('page') === 'roster' || qs.get('page') === 'setup') && settings.endpoint) show(qs.get('page')); else if (!settings.endpoint) show('settings'); else if (start !== 'home' && start !== 'settings' && settings.race && (settings.device || start === 'results')) show(start); else show('home');
 })();

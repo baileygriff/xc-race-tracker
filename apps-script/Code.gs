@@ -23,10 +23,10 @@ function setup() {
     if (sh.getLastRow() === 0) { sh.appendRow(hdr); sh.setFrozenRows(1); sh.getRange(1, 1, 1, hdr.length).setFontWeight('bold'); }
   });
   const cfg = ss.getSheetByName('Config');
-  if (cfg.getLastRow() < 2) cfg.getRange(2, 1, 5, 2).setValues([
+  if (cfg.getLastRow() < 2) cfg.getRange(2, 1, 6, 2).setValues([
     ['races', 'Boys, Girls'],
-    ['passcode', ''], ['coach_code', ''],
-    ['note', 'races: comma separated. passcode: volunteers. coach_code: coaches submitting rosters (falls back to passcode).']]);
+    ['passcode', ''], ['coach_code', ''], ['teams', ''],
+    ['note', 'Edit these from the app (Meet setup page) or here. races/teams: comma separated. passcode: volunteers. coach_code: coaches (falls back to passcode).']]);
   const first = ss.getSheets()[0]; if (first.getName() === 'Sheet1' && first.getLastRow() === 0) ss.deleteSheet(first);
   Logger.log('Setup done. Now fill in Config (races, passcode, coach_code) and deploy as a web app.');
 }
@@ -63,7 +63,24 @@ function submitRoster(p) {
   assignBibs();
   return rosterList().filter(r => r.team.toLowerCase() === team.toLowerCase() && r.race === race);
 }
-function teamsList() { return [...new Set(SS().getSheetByName('Roster').getDataRange().getValues().slice(1).map(r => String(r[0]).trim()).filter(Boolean))].sort(); }
+const splitList = v => String(v || '').split(',').map(x => x.trim()).filter(Boolean);
+function teamsList() {
+  const fromRoster = SS().getSheetByName('Roster').getDataRange().getValues().slice(1).map(r => String(r[0]).trim()).filter(Boolean);
+  return [...new Set([...splitList(config('teams')), ...fromRoster])].sort((a, b) => a.localeCompare(b));
+}
+/** Everything the meet director can change from the app. */
+function meetConfig() {
+  const counts = {}; rosterList().forEach(r => { counts[r.team] = counts[r.team] || {}; counts[r.team][r.race] = (counts[r.team][r.race] || 0) + 1; });
+  return { races: races(), coach_code: config('coach_code'), passcode: config('passcode'),
+    teams: teamsList().map(t => ({ team: t, counts: counts[t] || {} })) };
+}
+function setMeetConfig(p) {
+  if (p.races !== undefined) { const r = splitList(Array.isArray(p.races) ? p.races.join(',') : p.races); if (!r.length) throw new Error('At least one race is needed'); setConfig('races', r.join(', ')); }
+  if (p.teams !== undefined) setConfig('teams', splitList(Array.isArray(p.teams) ? p.teams.join(',') : p.teams).join(', '));
+  if (p.coach_code !== undefined) setConfig('coach_code', String(p.coach_code).trim());
+  if (p.passcode !== undefined && String(p.passcode).trim()) setConfig('passcode', String(p.passcode).trim());
+  return meetConfig();
+}
 
 /** Gives every Roster row without a bib a 3-digit number that differs from every other bib
  *  in at least two digit positions, so a single misread digit can never land on another real runner. */
@@ -95,6 +112,7 @@ function doGet(e) {
     if (p.action === 'coach') { checkCoachCode(p.code); return json({ ok: true, races: races(), teams: teamsList(),
       roster: p.team ? rosterList().filter(r => r.team.toLowerCase() === String(p.team).toLowerCase()) : [] }); }
     checkKey(p.key);
+    if (p.action === 'config') return json(Object.assign({ ok: true }, meetConfig()));
     if (p.action === 'roster') return json({ ok: true, races: races(), roster: rosterList() });
     if (p.action === 'results') return json(Object.assign({ ok: true }, computeResults(p.race)));
     return json({ ok: true, ping: 'XC Race Tracker', races: races() });
@@ -106,6 +124,7 @@ function doPost(e) {
     const p = JSON.parse(e.postData.contents);
     if (p.action === 'roster_submit') { checkCoachCode(p.code); return json({ ok: true, roster: submitRoster(p) }); }
     checkKey(p.key);
+    if (p.action === 'config_set') return json(Object.assign({ ok: true }, setMeetConfig(p)));
     if (!p.race || !p.role || !p.device || !Array.isArray(p.entries)) throw new Error('Missing race, role, device or entries');
     const now = new Date();
     const sheetName = p.role === 'timer' ? 'Times' : p.role === 'places' ? 'Places' : null;
