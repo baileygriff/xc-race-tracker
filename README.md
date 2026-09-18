@@ -78,15 +78,19 @@ race's taps are kept separately, so switching races between heats loses nothing.
    sheet, so two timers must use different names). Finish loggers tap **Reload bib list** while there
    is signal; bibs are kept on the phone after that.
 2. Gun: Timer presses **START RACE**. From then on, only **LAP**, once per runner crossing the line.
-   After the last runner, **Finish race** stops the clock.
+   After the last runner, **Finish race & send** stops the clock and sends the times. The page then
+   says when it was sent, and warns if the list changes afterwards.
 3. In the chute, Finishers taps each bib as the runner passes. Runner with no bib → the orange
    button, and write down who it was. Misclick → **Undo last** (tap twice).
 4. **Corrections:** tap any entry in the list to change it, insert one before or after it, or delete
    it. Everything after the change shifts automatically.
-5. After the last runner: everyone presses **Send to sheet**. The reply says what the sheet now has
-   and lists anything that disagrees. Fix it on the phone and send again; a re-send replaces only
-   that phone's earlier data. Then ‹ Home, pick the next race, repeat.
-6. Results: **Results** in the app, or the **Results** and **TeamScores** tabs in the sheet. Flagged
+5. After the last runner: finish loggers press **Send to sheet** (the timer already sent on finish).
+   The reply says what the sheet now has and lists anything that disagrees. Fix it on the phone and
+   send again; a re-send replaces only that phone's earlier data, so sending twice never doubles
+   anything. Then ‹ Home, pick the next race, repeat.
+6. Edits made by hand in the sheet's **Times**, **Places** or **Roster** tabs recompute positions,
+   Results and TeamScores on the spot. The **XC Tracker → Recompute results** menu does the same.
+7. Results: **Results** in the app, or the **Results** and **TeamScores** tabs in the sheet. Flagged
    rows are the ones to look at before announcing.
 
 Scoring follows the standard rule: only teams with five or more finishers score, places are

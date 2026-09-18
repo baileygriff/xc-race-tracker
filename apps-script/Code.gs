@@ -104,6 +104,15 @@ function assignBibs() {
   return assigned;
 }
 
+// ---------- keep Results and TeamScores true when someone edits the sheet by hand ----------
+/** Simple trigger: any edit to Times, Places or Roster recomputes every race's Results and TeamScores. */
+function onEdit(e) {
+  const name = e && e.range ? e.range.getSheet().getName() : '';
+  if (['Times', 'Places', 'Roster'].includes(name)) recomputeAll();
+}
+function recomputeAll() { races().forEach(r => computeResults(r)); }
+function onOpen() { SpreadsheetApp.getUi().createMenu('XC Tracker').addItem('Recompute results', 'recomputeAll').addToUi(); }
+
 // ---------- web endpoints ----------
 const json = o => ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
 function rosterList() {

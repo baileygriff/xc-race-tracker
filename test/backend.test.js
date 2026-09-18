@@ -93,4 +93,10 @@ assert.strictEqual(ctx.doGet({ parameter:{ action:'config', key:'dc' } }).volunt
 // a time corrected out of order on the phone is still placed by time in the sheet
 post({ role:'timer', race:'Girls', device:'T', entries:[{pos:1, ms:100000, time:'01:40.0'},{pos:2, ms:90000, time:'01:30.0'},{pos:3, ms:110000, time:'01:50.0'}] });
 const g = ctx.computeResults('Girls'); assert.strictEqual(g.results.map(r => r.time).join(), '01:30.0,01:40.0,01:50.0');
+
+// a hand edit in the Times tab re-sorts positions and rescores without any phone involved
+const girlsTimes = sheets.Times.rows.filter(r => r[0] === 'Girls'); girlsTimes[2][2] = 80000; girlsTimes[2][3] = '01:20.0'; // the 01:50 runner is now 01:20
+ctx.onEdit({ range: { getSheet: () => ({ getName: () => 'Times' }) } });
+assert.strictEqual(sheets.Results.rows.filter(r => r[0] === 'Girls').map(r => r[5]).join(), '01:20.0,01:30.0,01:40.0');
+ctx.onEdit({ range: { getSheet: () => ({ getName: () => 'Config' }) } }); // other tabs do nothing
 console.log('backend tests pass');

@@ -84,8 +84,8 @@ async function get(params) {
 }
 async function sendWithFeedback(btns, payload, what) {
   btns.forEach(b => { b.disabled = true; });
-  try { const j = await post(payload); toast(`Sent ${what} to the sheet ✓` + (j.note ? ' — ' + j.note : ''), !!j.note); }
-  catch (e) { toast('Send failed: ' + explain(e) + '. Nothing is lost — try again or use Copy.', true); }
+  try { const j = await post(payload); toast(`Sent ${what} to the sheet ✓` + (j.note ? ' — ' + j.note : ''), !!j.note); return true; }
+  catch (e) { toast('Send failed: ' + explain(e) + '. Nothing is lost — try again or use Copy.', true); return false; }
   finally { btns.forEach(b => { b.disabled = false; }); }
 }
 function explain(e) { return /volunteer code/i.test(e.message) ? 'Wrong volunteer code — fix it under ⚙ Settings' : e.message; }
@@ -128,7 +128,9 @@ function renderTimer() {
   const d = rd.get(); const phase = !d.start ? 'idle' : d.end ? 'done' : 'running';
   ['idle', 'running', 'done'].forEach(p => $('timer-phase-' + p).classList.toggle('hidden', p !== phase));
   $('lap-count').textContent = `${d.laps.length} finisher${d.laps.length === 1 ? '' : 's'}`;
-  $('timer-done-msg').textContent = `Race finished — ${d.laps.length} finishers. Check the list, then send.`;
+  const sig = d.laps.join(',');
+  $('timer-done-msg').innerHTML = `Race finished — ${d.laps.length} finishers. ` + (!d.sentSig ? '<span class="flag">Not sent to the sheet yet.</span>'
+    : d.sentSig === sig ? `Sent to the sheet at ${new Date(d.sentAt).toLocaleTimeString([], { timeStyle: 'short' })}.` : '<span class="flag">Changed since it was last sent — send again.</span>');
   $('timer-list').innerHTML = d.laps.map((ms, i) => `<li data-i="${i}"><span class="pos">${i + 1}</span><span>${fmt(ms)}</span></li>`).reverse().join('');
   clearInterval(clockTimer);
   const tick = () => { $('clock').textContent = d.start ? fmt((d.end || Date.now()) - d.start) : '00:00.0'; };
@@ -139,15 +141,17 @@ $('btn-lap').onclick = () => { const now = Date.now(); const d = rd.get(); if (!
   d.laps.push(now - d.start); rd.set(d); renderTimer(); navigator.vibrate?.(30); };
 $('btn-timer-undo').onclick = () => { const d = rd.get(); if (!d.laps.length) return toast('Nothing to undo');
   armed($('btn-timer-undo'), `Tap again to remove #${d.laps.length}`, () => { d.laps.pop(); rd.set(d); renderTimer(); toast('Removed'); }); };
-$('btn-finish').onclick = () => armed($('btn-finish'), 'Tap again to finish', () => { const d = rd.get(); d.end = Date.now(); rd.set(d); renderTimer(); });
+$('btn-finish').onclick = () => armed($('btn-finish'), 'Tap again to finish', () => { const d = rd.get(); d.end = Date.now(); rd.set(d); renderTimer(); if (d.laps.length) sendTimes(); });
 $('btn-resume').onclick = () => { const d = rd.get(); d.end = null; rd.set(d); renderTimer(); };
 const timerPayload = () => { const d = rd.get(); return { role: 'timer', race: raceKey(), device: settings.device, start: d.start, end: d.end,
   entries: d.laps.map((ms, i) => ({ pos: i + 1, ms, time: fmt(ms) })) }; };
-const sendTimes = () => { const p = timerPayload(); if (!p.entries.length) return toast('No finishers yet');
-  sendWithFeedback([$('btn-timer-send'), $('btn-timer-send2')], p, p.entries.length + ' times'); };
+const sendTimes = async () => { const p = timerPayload(); if (!p.entries.length) return toast('No finishers yet');
+  const ok = await sendWithFeedback([$('btn-timer-send'), $('btn-timer-send2')], p, p.entries.length + ' times');
+  if (ok) { const d = rd.get(); d.sentSig = p.entries.map(e => e.ms).join(','); d.sentAt = Date.now(); rd.set(d); }
+  renderTimer(); };
 $('btn-timer-send').onclick = sendTimes; $('btn-timer-send2').onclick = sendTimes;
 $('btn-timer-copy').onclick = () => copyText(`TIMES ${raceKey()} (${settings.device})\n` + rd.get().laps.map((ms, i) => `${i + 1}\t${fmt(ms)}`).join('\n'));
-$('btn-timer-reset').onclick = () => armed($('btn-timer-reset'), 'Tap again to erase ALL times', () => { const d = rd.get(); d.start = null; d.end = null; d.laps = []; rd.set(d); renderTimer(); toast('Timer reset'); });
+$('btn-timer-reset').onclick = () => armed($('btn-timer-reset'), 'Tap again to erase ALL times', () => { const d = rd.get(); d.start = null; d.end = null; d.laps = []; d.sentSig = null; rd.set(d); renderTimer(); toast('Timer reset'); });
 $('timer-list').onclick = e => { const li = e.target.closest('li'); if (li) openEdit('timer', +li.dataset.i); };
 
 // ---------- FINISHERS ----------
