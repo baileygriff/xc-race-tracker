@@ -77,9 +77,17 @@ race's taps are kept separately, so switching races between heats loses nothing.
 1. Every volunteer opens the app, picks the race and types their name (it labels their data in the
    sheet, so two timers must use different names). Finish loggers tap **Reload bib list** while there
    is signal; bibs are kept on the phone after that.
-2. Gun: Timer presses **START RACE**. From then on, only **LAP**, once per runner crossing the line.
-   After the last runner, **Finish race & send** stops the clock and sends the times. The page then
-   says when it was sent, and warns if the list changes afterwards.
+2. Gun: any timer presses **START RACE**. The first press starts the clock for every timer on that
+   race; the others pick it up within a few seconds and show "Shared start, pressed by Sam". A timer
+   who opens the app after the gun joins with correct times. Without signal, START still works on
+   that phone alone. From then on, only **LAP**, once per runner crossing the line. After the last
+   runner, **Finish race & send** stops the clock and sends the times. The page then says when it
+   was sent, and warns if the list changes afterwards.
+   - **False start:** any timer taps Reset race (twice). Every timer with no laps yet drops back to
+     waiting; a timer that already has laps keeps them and is told, so nobody's data is destroyed
+     by someone else's thumb. Then whoever presses START first starts everyone again.
+   - Phones' clocks are corrected against the sheet's clock, so two timers agree to well under a
+     second even if a phone's clock is off.
 3. In the chute, Finishers taps each bib as the runner passes. Runner with no bib → the orange
    button, and write down who it was. Misclick → **Undo last** (tap twice).
 4. **Corrections:** tap any entry in the list to change it, insert one before or after it, or delete

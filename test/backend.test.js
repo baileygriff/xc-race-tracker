@@ -105,4 +105,14 @@ const coach2 = body => ctx.doPost({ postData:{ contents: JSON.stringify(Object.a
 cr = coach2({ team:'F', race:'Girls', runners:[{name:'Fay One', bib:'321'},{name:'Fay Two', bib:'321'},{name:'Fay Three', bib: ellaBib}] });
 assert.ok(cr.ok, cr.error); const fb = Object.fromEntries(cr.roster.map(r => [r.name, r.bib]));
 assert.strictEqual(fb['Fay One'], '321'); assert.notStrictEqual(fb['Fay Two'], '321'); assert.notStrictEqual(fb['Fay Three'], ellaBib);
+
+// shared start: every reply carries the sheet clock; first press wins; clear empties it; per race
+assert.ok(Math.abs(ctx.doGet({ parameter:{ action:'roster', key:'pc' } }).now - Date.now()) < 2000);
+assert.strictEqual(ctx.doGet({ parameter:{ action:'start', race:'Boys', key:'pc' } }).start, null);
+let st = post({ action:'start_set', race:'Boys', device:'Sam', ms: 1000 }); assert.strictEqual(st.adopted, false); assert.strictEqual(st.start.ms, 1000);
+st = post({ action:'start_set', race:'Boys', device:'Kim', ms: 1600 }); assert.strictEqual(st.adopted, true); assert.strictEqual(st.start.device, 'Sam'); assert.strictEqual(st.start.ms, 1000);
+assert.strictEqual(ctx.doGet({ parameter:{ action:'start', race:'Girls', key:'pc' } }).start, null);
+post({ action:'start_clear', race:'Boys', device:'Kim' });
+assert.strictEqual(ctx.doGet({ parameter:{ action:'start', race:'Boys', key:'pc' } }).start, null);
+assert.match(post({ action:'start_set', race:'', device:'Sam', ms: 5 }).error, /race/i);
 console.log('backend tests pass');

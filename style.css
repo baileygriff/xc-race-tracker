@@ -69,3 +69,4 @@ code { background: var(--panel); padding: 1px 5px; border-radius: 4px; font-size
 ul.formats { margin: 6px 0; padding-left: 20px; } ul.formats li { margin: 3px 0; }
 .why { display: block; font-size: 12px; margin-top: 2px; } .why:empty { display: none; }
 .linkrow { display: flex; gap: 8px; align-items: center; margin: 8px 0; } .linkrow b { width: 6em; } .linkrow input { flex: 1; font-size: 13px; color: var(--muted); } .linkrow button { padding: 10px 12px; }
+#timer-shared { text-align: center; margin: -2px 0 8px; min-height: 1.2em; }

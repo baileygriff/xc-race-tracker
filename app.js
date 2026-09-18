@@ -1,6 +1,6 @@
 /* XC Race Tracker — one page, three jobs. Every tap is saved on the phone at once.
    Sending is optional and repeatable: the sheet replaces this phone's earlier data for the same race and job. */
-const VERSION = '0.4.0';
+const VERSION = '0.5.0';
 const $ = id => document.getElementById(id);
 
 // ---------- storage ----------
@@ -43,6 +43,7 @@ function armed(btn, label, fn) {
 function disarm(btn) { if (!btn.dataset.armed) return; btn.innerHTML = btn.dataset.label; btn.classList.remove('armed'); delete btn.dataset.armed; }
 const TITLES = { home: 'XC Race Tracker', timer: 'Timer', finishers: 'Finishers', results: 'Results', settings: 'Settings', roster: 'Roster', setup: 'Meet setup' };
 function show(view) {
+  clearInterval(sharedPoll);
   document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
   $('view-' + view).classList.remove('hidden');
   $('hdr-title').textContent = TITLES[view];
@@ -69,17 +70,27 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 
 // ---------- network ----------
 function needEndpoint() { if (!settings.endpoint) throw new Error('No sheet endpoint set — open ⚙ Settings'); }
+// The sheet stamps its clock on every reply. offset = this phone's clock minus the sheet's, estimated at the midpoint of the
+// round trip; the sample with the shortest round trip is kept (NTP-style), refreshed if it is older than ten minutes.
+const clock = Object.assign({ offset: 0, rtt: Infinity, at: 0 }, store.get('clock', {}));
+function noteClock(j, t0, t1) {
+  if (typeof j.now !== 'number') return;
+  const rtt = t1 - t0, offset = (t0 + t1) / 2 - j.now;
+  if (rtt < clock.rtt || Date.now() - clock.at > 600000) { clock.offset = offset; clock.rtt = rtt; clock.at = Date.now(); store.set('clock', clock); }
+}
+const toLocal = sheetMs => sheetMs + clock.offset, toSheet = localMs => localMs - clock.offset;
 async function post(payload) {
   needEndpoint();
   // text/plain avoids a CORS preflight, which Apps Script cannot answer.
+  const t0 = Date.now();
   const r = await fetch(settings.endpoint, { method: 'POST', body: JSON.stringify(Object.assign({ key: settings.key }, payload)),
     headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow' });
-  const j = await r.json(); if (!j.ok) throw new Error(j.error || 'Sheet rejected the data'); return j;
+  const j = await r.json(); noteClock(j, t0, Date.now()); if (!j.ok) throw new Error(j.error || 'Sheet rejected the data'); return j;
 }
 async function get(params) {
   needEndpoint();
   const u = new URL(settings.endpoint); Object.entries(Object.assign({ key: settings.key }, params)).forEach(([k, v]) => { if (v !== undefined) u.searchParams.set(k, v); });
-  const r = await fetch(u, { redirect: 'follow' }); const j = await r.json();
+  const t0 = Date.now(); const r = await fetch(u, { redirect: 'follow' }); const j = await r.json(); noteClock(j, t0, Date.now());
   if (!j.ok) throw new Error(j.error || 'Sheet returned an error'); return j;
 }
 async function sendWithFeedback(btns, payload, what) {
@@ -123,10 +134,30 @@ document.querySelectorAll('button.mode').forEach(b => b.onclick = () => {
 });
 
 // ---------- TIMER ----------
-let clockTimer;
+let clockTimer, sharedPoll;
+function sharedLine(d) {
+  if (d.sharedNote) return `<span class="flag">${d.sharedNote}</span>`;
+  if (!d.start) return navigator.onLine && settings.endpoint ? 'Waiting for the gun — will also start when any other timer presses START.' : '';
+  return d.sharedBy ? `Shared start, pressed by ${d.sharedBy === settings.device ? 'you' : d.sharedBy}` : 'Started on this phone only (no signal at the gun)';
+}
+/** While on the timer page, keep an eye on the race's shared start: adopt it, or notice that it was reset. */
+async function pollShared() {
+  if ($('view-timer').classList.contains('hidden') || !navigator.onLine || !settings.endpoint) return;
+  try {
+    const j = await get({ action: 'start', race: raceKey() }); const d = rd.get(); const s = j.start;
+    if (s && !d.start) { d.start = toLocal(s.ms); d.startSheet = s.ms; d.sharedBy = s.device; d.end = null; d.sharedNote = ''; rd.set(d); keepAwake(); renderTimer(); toast(`Started by ${s.device} — clock adopted`); }
+    else if (s && d.start && !d.sharedBy) { const diff = Math.round((d.start - toLocal(s.ms)) / 100) / 10; // started locally, now a shared start exists
+      if (Math.abs(diff) > 2) { d.sharedNote = `${s.device} started ${Math.abs(diff)}s ${diff > 0 ? 'before' : 'after'} you — results will flag the difference`; rd.set(d); renderTimer(); } }
+    else if (!s && d.start && d.sharedBy && !d.end) { // the shared start was reset by someone
+      if (!d.laps.length) { d.start = null; d.sharedBy = null; d.sharedNote = ''; rd.set(d); renderTimer(); toast('The race start was reset — waiting for the gun again'); }
+      else if (!d.sharedNote) { d.sharedNote = 'Another timer reset the race start. Your times are kept; reset here too if the race really restarted.'; rd.set(d); renderTimer(); } }
+  } catch {}
+}
 function renderTimer() {
   const d = rd.get(); const phase = !d.start ? 'idle' : d.end ? 'done' : 'running';
   ['idle', 'running', 'done'].forEach(p => $('timer-phase-' + p).classList.toggle('hidden', p !== phase));
+  $('timer-shared').innerHTML = sharedLine(d);
+  clearInterval(sharedPoll); if (phase !== 'done') sharedPoll = setInterval(pollShared, phase === 'idle' ? 2000 : 5000);
   $('lap-count').textContent = `${d.laps.length} finisher${d.laps.length === 1 ? '' : 's'}`;
   const sig = d.laps.join(',');
   $('timer-done-msg').innerHTML = `Race finished — ${d.laps.length} finishers. ` + (!d.sentSig ? '<span class="flag">Not sent to the sheet yet.</span>'
@@ -136,12 +167,22 @@ function renderTimer() {
   const tick = () => { $('clock').textContent = d.start ? fmt((d.end || Date.now()) - d.start) : '00:00.0'; };
   tick(); if (phase === 'running') clockTimer = setInterval(tick, 100);
 }
-$('btn-start').onclick = () => { const d = rd.get(); if (d.start) return; d.start = Date.now(); d.end = null; rd.set(d); keepAwake(); renderTimer(); toast('Race started'); };
+$('btn-start').onclick = async () => {
+  const d = rd.get(); if (d.start) return; const now = Date.now();
+  d.start = now; d.end = null; d.sharedBy = null; d.sharedNote = ''; rd.set(d); keepAwake(); renderTimer(); toast('Race started');
+  if (!navigator.onLine || !settings.endpoint) return;
+  try { const j = await post({ action: 'start_set', race: raceKey(), device: settings.device, ms: toSheet(now) }); const d2 = rd.get(); if (!d2.start) return;
+    if (j.adopted) { const theirs = toLocal(j.start.ms); const diff = Math.round((d2.start - theirs) / 100) / 10;
+      d2.start = theirs; d2.laps = d2.laps.map(ms => ms + (now - theirs)); } // first press wins: re-base onto the shared instant
+    d2.startSheet = j.start.ms; d2.sharedBy = j.start.device; rd.set(d2); renderTimer();
+    if (j.adopted) toast(`${j.start.device} pressed first — clock adopted`); else toast('Race started for every timer on ' + raceKey());
+  } catch (e) { toast('Started on this phone; could not share the start: ' + explain(e), true); }
+};
 $('btn-lap').onclick = () => { const now = Date.now(); const d = rd.get(); if (!d.start || d.end) return;
   d.laps.push(now - d.start); rd.set(d); renderTimer(); navigator.vibrate?.(30); };
 $('btn-timer-undo').onclick = () => { const d = rd.get(); if (!d.laps.length) return toast('Nothing to undo');
   armed($('btn-timer-undo'), `Tap again to remove #${d.laps.length}`, () => { d.laps.pop(); rd.set(d); renderTimer(); toast('Removed'); }); };
-$('btn-finish').onclick = () => armed($('btn-finish'), 'Tap again to finish', () => { const d = rd.get(); d.end = Date.now(); rd.set(d); renderTimer(); if (d.laps.length) sendTimes(); });
+$('btn-finish').onclick = () => armed($('btn-finish'), 'Tap again to finish', () => { const d = rd.get(); d.end = Date.now(); d.sharedNote = ''; rd.set(d); renderTimer(); if (d.laps.length) sendTimes(); });
 $('btn-resume').onclick = () => { const d = rd.get(); d.end = null; rd.set(d); renderTimer(); };
 const timerPayload = () => { const d = rd.get(); return { role: 'timer', race: raceKey(), device: settings.device, start: d.start, end: d.end,
   entries: d.laps.map((ms, i) => ({ pos: i + 1, ms, time: fmt(ms) })) }; };
@@ -151,7 +192,11 @@ const sendTimes = async () => { const p = timerPayload(); if (!p.entries.length)
   renderTimer(); };
 $('btn-timer-send').onclick = sendTimes; $('btn-timer-send2').onclick = sendTimes;
 $('btn-timer-copy').onclick = () => copyText(`TIMES ${raceKey()} (${settings.device})\n` + rd.get().laps.map((ms, i) => `${i + 1}\t${fmt(ms)}`).join('\n'));
-$('btn-timer-reset').onclick = () => armed($('btn-timer-reset'), 'Tap again to erase ALL times', () => { const d = rd.get(); d.start = null; d.end = null; d.laps = []; d.sentSig = null; rd.set(d); renderTimer(); toast('Timer reset'); });
+$('btn-timer-reset').onclick = () => armed($('btn-timer-reset'), 'Tap again: erase times, reset start for ALL timers', async () => {
+  const d = rd.get(); const shared = !!d.sharedBy; d.start = null; d.end = null; d.laps = []; d.sentSig = null; d.sharedBy = null; d.sharedNote = ''; rd.set(d); renderTimer();
+  if (navigator.onLine && settings.endpoint) { try { await post({ action: 'start_clear', race: raceKey(), device: settings.device }); toast('Reset — every timer on ' + raceKey() + ' is back to waiting for the gun'); }
+    catch (e) { toast('Reset this phone; could not clear the shared start: ' + explain(e), true); } }
+  else toast(shared ? 'Reset this phone. No signal, so the shared start is still set — reset again with signal.' : 'Timer reset', shared); });
 $('timer-list').onclick = e => { const li = e.target.closest('li'); if (li) openEdit('timer', +li.dataset.i); };
 
 // ---------- FINISHERS ----------

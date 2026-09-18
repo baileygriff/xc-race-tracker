@@ -13,6 +13,7 @@ const HEADERS = {
   Places:     ['Race', 'Pos', 'Bib', 'Device', 'Submitted'],
   Results:    ['Race', 'Pos', 'Bib', 'Name', 'Team', 'Time', 'ScoringPlace', 'Flags', 'TimesByDevice', 'BibsByDevice'],
   TeamScores: ['Race', 'Rank', 'Team', 'Score', 'Scorers', 'Displacers', 'Note'],
+  Starts:     ['Race', 'StartMs', 'Device', 'SetAt'],
 };
 
 // ---------- one-time setup ----------
@@ -106,6 +107,16 @@ function assignBibs() {
   return assigned;
 }
 
+// ---------- shared race start: one instant, in sheet time, that every timer on a race adopts ----------
+function sharedStart(race) {
+  const r = SS().getSheetByName('Starts').getDataRange().getValues().slice(1).find(r => r[0] === race);
+  return r ? { ms: Number(r[1]), device: String(r[2]) } : null;
+}
+function setSharedStart(race, start) {
+  if (!race) throw new Error('Missing race');
+  writeRows('Starts', race, start ? [[race, start.ms, start.device, new Date()]] : []);
+}
+
 // ---------- keep Results and TeamScores true when someone edits the sheet by hand ----------
 /** Simple trigger: any edit to Times, Places or Roster recomputes every race's Results and TeamScores. */
 function onEdit(e) {
@@ -116,7 +127,8 @@ function recomputeAll() { races().forEach(r => computeResults(r)); }
 function onOpen() { SpreadsheetApp.getUi().createMenu('XC Tracker').addItem('Recompute results', 'recomputeAll').addToUi(); }
 
 // ---------- web endpoints ----------
-const json = o => ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON);
+// Every reply carries the sheet's clock (`now`) so phones can measure their own offset and share one start instant.
+const json = o => ContentService.createTextOutput(JSON.stringify(Object.assign({ now: Date.now() }, o))).setMimeType(ContentService.MimeType.JSON);
 function rosterList() {
   return SS().getSheetByName('Roster').getDataRange().getValues().slice(1)
     .filter(r => r[4] !== '').map(r => ({ team: r[0], name: r[1], grade: r[2], race: r[3], bib: String(r[4]) }));
@@ -129,6 +141,7 @@ function doGet(e) {
     if (p.action === 'config') { checkDirector(p.key); return json(Object.assign({ ok: true }, meetConfig())); }
     checkVolunteer(p.key);
     if (p.action === 'roster') return json({ ok: true, races: races(), roster: rosterList() });
+    if (p.action === 'start') return json({ ok: true, start: sharedStart(p.race) });
     if (p.action === 'results') return json(Object.assign({ ok: true }, computeResults(p.race)));
     return json({ ok: true, ping: 'XC Race Tracker', races: races() });
   } catch (err) { return json({ ok: false, error: err.message }); }
@@ -140,6 +153,9 @@ function doPost(e) {
     if (p.action === 'roster_submit') { checkCoach(p.code); return json({ ok: true, roster: submitRoster(p) }); }
     if (p.action === 'config_set') { checkDirector(p.key); return json(Object.assign({ ok: true }, setMeetConfig(p))); }
     checkVolunteer(p.key);
+    if (p.action === 'start_set') { const s = sharedStart(p.race); if (s) return json({ ok: true, start: s, adopted: true }); // first press wins
+      setSharedStart(p.race, { ms: Number(p.ms), device: p.device || '' }); return json({ ok: true, start: sharedStart(p.race), adopted: false }); }
+    if (p.action === 'start_clear') { setSharedStart(p.race, null); return json({ ok: true, start: null }); }
     if (!p.race || !p.role || !p.device || !Array.isArray(p.entries)) throw new Error('Missing race, role, device or entries');
     const now = new Date();
     const sheetName = p.role === 'timer' ? 'Times' : p.role === 'places' ? 'Places' : null;
