@@ -99,4 +99,10 @@ const girlsTimes = sheets.Times.rows.filter(r => r[0] === 'Girls'); girlsTimes[2
 ctx.onEdit({ range: { getSheet: () => ({ getName: () => 'Times' }) } });
 assert.strictEqual(sheets.Results.rows.filter(r => r[0] === 'Girls').map(r => r[5]).join(), '01:20.0,01:30.0,01:40.0');
 ctx.onEdit({ range: { getSheet: () => ({ getName: () => 'Config' }) } }); // other tabs do nothing
+
+// a pre-printed bib supplied with a runner is kept when it is free, and ignored when another runner already has it
+const coach2 = body => ctx.doPost({ postData:{ contents: JSON.stringify(Object.assign({ action:'roster_submit', code:'cc2' }, body)) } }); // the coach code was changed above
+cr = coach2({ team:'F', race:'Girls', runners:[{name:'Fay One', bib:'321'},{name:'Fay Two', bib:'321'},{name:'Fay Three', bib: ellaBib}] });
+assert.ok(cr.ok, cr.error); const fb = Object.fromEntries(cr.roster.map(r => [r.name, r.bib]));
+assert.strictEqual(fb['Fay One'], '321'); assert.notStrictEqual(fb['Fay Two'], '321'); assert.notStrictEqual(fb['Fay Three'], ellaBib);
 console.log('backend tests pass');

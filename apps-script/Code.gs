@@ -52,7 +52,7 @@ function submitRoster(p) {
   let team = String(p.team || '').trim(); const race = String(p.race || '').trim();
   if (!team || !race) throw new Error('Team and race are required');
   if (!races().includes(race)) throw new Error('Unknown race ' + race);
-  const runners = (p.runners || []).map(r => ({ name: String(r.name || '').trim(), grade: String(r.grade || '').trim() })).filter(r => r.name);
+  const runners = (p.runners || []).map(r => ({ name: String(r.name || '').trim(), grade: String(r.grade || '').trim(), bib: /^\d{3}$/.test(String(r.bib || '').trim()) ? String(r.bib).trim() : '' })).filter(r => r.name);
   if (!runners.length) throw new Error('No runners');
   const names = new Set(); const dup = runners.find(r => { const k = r.name.toLowerCase(); if (names.has(k)) return true; names.add(k); });
   if (dup) throw new Error(`"${dup.name}" is listed twice`);
@@ -62,7 +62,8 @@ function submitRoster(p) {
   const oldBib = {}; data.slice(1).filter(mine).forEach(r => oldBib[String(r[1]).trim().toLowerCase()] = String(r[4]));
   const keep = data.filter((r, i) => i === 0 || !mine(r));
   sh.clearContents(); sh.getRange(1, 1, keep.length, keep[0].length).setValues(keep);
-  const rows = runners.map(r => [team, r.name, r.grade, race, oldBib[r.name.toLowerCase()] || '']);
+  const taken = new Set(keep.slice(1).map(r => String(r[4])));
+  const rows = runners.map(r => { const bib = r.bib && !taken.has(r.bib) ? r.bib : oldBib[r.name.toLowerCase()] || ''; if (bib) taken.add(bib); return [team, r.name, r.grade, race, bib]; }); // a supplied bib wins if free
   sh.getRange(sh.getLastRow() + 1, 1, rows.length, 5).setValues(rows);
   assignBibs();
   return rosterList().filter(r => r.team.toLowerCase() === team.toLowerCase() && r.race === race);

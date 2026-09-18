@@ -362,6 +362,10 @@ async function renderSetup(force) {
     $('su-body').classList.remove('hidden');
     if (force || !setupDirty) { $('su-races').value = c.races.join('\n'); $('su-teams').value = c.teams.join('\n');
       $('su-volunteer').value = c.volunteer_code; $('su-coach').value = c.coach_code; $('su-director').value = c.director_code; setupDirty = false; }
+    const base = location.origin + location.pathname, ep = encodeURIComponent(settings.endpoint);
+    const links = [['Volunteers', `${base}?endpoint=${ep}&key=${encodeURIComponent(c.volunteer_code)}`], ['Coaches', `${base}?page=roster&endpoint=${ep}&code=${encodeURIComponent(c.coach_code)}`],
+      ['Director', `${base}?page=setup&endpoint=${ep}&key=${encodeURIComponent(c.volunteer_code)}&dkey=${encodeURIComponent(c.director_code)}`]];
+    $('su-links').innerHTML = links.map(([who, url]) => `<div class="linkrow"><b>${who}</b><input readonly value="${url}"><button class="secondary small" data-copy="${url}">Copy</button></div>`).join('');
     const all = [...c.teams, ...c.rosters.map(t => t.team).filter(t => !c.teams.includes(t))]; const counts = Object.fromEntries(c.rosters.map(t => [t.team, t.counts]));
     $('su-status').innerHTML = (all.length ? '<h3>Teams and runners on file</h3><table><tr><th>Team</th>' + c.races.map(r => `<th>${r}</th>`).join('') + '</tr>' +
       all.map(t => `<tr><td>${t}${c.teams.includes(t) ? '' : ' <span class="badge">not in list</span>'}</td>${c.races.map(r => `<td>${(counts[t] || {})[r] || '<span style="color:var(--muted)">—</span>'}</td>`).join('')}</tr>`).join('') + '</table>' +
@@ -371,6 +375,7 @@ async function renderSetup(force) {
 let dkeyTimer;
 $('su-dkey').oninput = () => { settings.dkey = $('su-dkey').value.trim(); saveSettings(); clearTimeout(dkeyTimer); dkeyTimer = setTimeout(() => renderSetup(false), 600); };
 ['su-races', 'su-teams', 'su-volunteer', 'su-coach', 'su-director'].forEach(id => $(id).oninput = () => { setupDirty = true; });
+$('su-links').onclick = e => { const b = e.target.closest('[data-copy]'); if (b) copyText(b.dataset.copy); };
 $('su-save').onclick = async () => {
   $('su-save').disabled = true;
   const v = $('su-volunteer').value.trim(), c = $('su-coach').value.trim(), d = $('su-director').value.trim();
