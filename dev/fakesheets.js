@@ -5,7 +5,7 @@ class Sheet { constructor(n){ this.name=n; this.rows=[]; }
   getDataRange(){ const s=this; return { getValues(){ return s.rows.map(r=>[...r]); } }; }
   clearContents(){ this.rows=[]; }
   getRange(r,c,nr=1,nc=1){ const s=this; return {
-    setValues(v){ v.forEach((row,i)=>{ s.rows[r-1+i]=s.rows[r-1+i]||[]; row.forEach((x,j)=>s.rows[r-1+i][c-1+j]=x); }); },
+    setValues(v){ if (v.length !== nr || v.some(row => row.length !== nc)) throw new Error(`The number of rows in the data does not match the number of rows in the range. The data has ${v.length} but the range has ${nr}.`); v.forEach((row,i)=>{ s.rows[r-1+i]=s.rows[r-1+i]||[]; row.forEach((x,j)=>s.rows[r-1+i][c-1+j]=x); }); },
     setValue(x){ s.rows[r-1]=s.rows[r-1]||[]; s.rows[r-1][c-1]=x; }, setFontWeight(){} }; } }
 function load() {
   const sheets = {};

@@ -23,10 +23,11 @@ function setup() {
     if (sh.getLastRow() === 0) { sh.appendRow(hdr); sh.setFrozenRows(1); sh.getRange(1, 1, 1, hdr.length).setFontWeight('bold'); }
   });
   const cfg = ss.getSheetByName('Config');
-  if (cfg.getLastRow() < 2) cfg.getRange(2, 1, 7, 2).setValues([
+  const defaults = [
     ['races', 'Boys, Girls'],
     ['volunteer_code', ''], ['coach_code', ''], ['director_code', ''], ['teams', ''],
-    ['note', 'Edit these from the app (Meet setup page) or here. Three codes: volunteer (timer/finishers/results), coach (roster page), director (meet setup; also opens everything else).']]);
+    ['note', 'Edit these from the app (Meet setup page) or here. Three codes: volunteer (timer/finishers/results), coach (roster page), director (meet setup; also opens everything else).']];
+  if (cfg.getLastRow() < 2) cfg.getRange(2, 1, defaults.length, 2).setValues(defaults);
   const first = ss.getSheets()[0]; if (first.getName() === 'Sheet1' && first.getLastRow() === 0) ss.deleteSheet(first);
   Logger.log('Setup done. Now put a director_code in Config and deploy as a web app; the rest is set from the app.');
 }
