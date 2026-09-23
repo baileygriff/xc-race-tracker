@@ -41,7 +41,7 @@ who found the script URL could write results. Change a code and the old links st
 |---|---|
 | volunteer | Timer, Finishers, Results |
 | coach | the roster page |
-| director | Meet setup, and everything above |
+| director | Meet setup, and everything above: a phone opened from the director link can time, log finishers, see results, and edit any team's roster |
 
 ### 3. The roster
 Send coaches the roster link:

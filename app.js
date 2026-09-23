@@ -1,6 +1,6 @@
 /* XC Race Tracker — one page, three jobs. Every tap is saved on the phone at once.
    Sending is optional and repeatable: the sheet replaces this phone's earlier data for the same race and job. */
-const VERSION = '0.5.1';
+const VERSION = '0.6.0';
 const $ = id => document.getElementById(id);
 
 // ---------- storage ----------
@@ -19,6 +19,10 @@ if (location.search && store.get('lastLink') !== location.search) {
 }
 saveSettings();
 let sheetError = ''; // last reason the sheet could not be read, shown on the home screen
+// A phone opened from the director link holds the director code, which the sheet accepts for every role.
+const isDirector = () => !!settings.dkey;
+const volunteerKey = () => settings.dkey || settings.key;
+const coachCode = () => settings.dkey || ro.code;
 const raceKey = () => (settings.race || '').trim();
 // Race data is keyed by race name, so switching races never touches another race's taps.
 const rd = {
@@ -98,11 +102,11 @@ async function sheetFetch(url, opts) {
 async function post(payload) {
   needEndpoint();
   // text/plain avoids a CORS preflight, which Apps Script cannot answer.
-  return sheetFetch(settings.endpoint, { method: 'POST', body: JSON.stringify(Object.assign({ key: settings.key }, payload)), headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
+  return sheetFetch(settings.endpoint, { method: 'POST', body: JSON.stringify(Object.assign({ key: volunteerKey() }, payload)), headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
 }
 async function get(params) {
   needEndpoint();
-  const u = new URL(settings.endpoint); Object.entries(Object.assign({ key: settings.key }, params)).forEach(([k, v]) => { if (v !== undefined) u.searchParams.set(k, v); });
+  const u = new URL(settings.endpoint); Object.entries(Object.assign({ key: volunteerKey() }, params)).forEach(([k, v]) => { if (v !== undefined) u.searchParams.set(k, v); });
   return sheetFetch(u);
 }
 async function sendWithFeedback(btns, payload, what) {
@@ -132,7 +136,7 @@ function renderHome() {
   $('home-device').value = settings.device;
   const d = settings.race ? rd.get() : null;
   const last = store.get('lastSync'); 
-  $('home-status').innerHTML = (!settings.endpoint ? 'Sheet: not set up (⚙)' : sheetError ? `<span class="flag">⚠ Sheet: ${sheetError}</span>` : last ? `Sheet: ${roster.length} bibs loaded ${new Date(last).toLocaleTimeString([], {timeStyle:'short'})}` : 'Sheet: not reached yet') +
+  $('home-status').innerHTML = (isDirector() ? '<span class="badge ok">Director</span> Every screen, every team. ' : '') + (!settings.endpoint ? 'Sheet: not set up (⚙)' : sheetError ? `<span class="flag">⚠ Sheet: ${sheetError}</span>` : last ? `Sheet: ${roster.length} bibs loaded ${new Date(last).toLocaleTimeString([], {timeStyle:'short'})}` : 'Sheet: not reached yet') +
     (d && (d.laps.length || d.finishers.length) ? ` · this phone has ${d.laps.length} times / ${d.finishers.length} finishers for ${settings.race}` : '');
 }
 $('home-race').onchange = () => { const v = $('home-race').value; $('home-race-other').classList.toggle('hidden', v !== '__other');
@@ -310,7 +314,7 @@ const bibOnFile = name => (roOnFile.find(r => r.name.toLowerCase() === name.toLo
 async function loadOnFile(fill) {
   roOnFile = []; if (!ro.team || !ro.race) { $('ro-file-status').textContent = ''; return; }
   $('ro-file-status').textContent = 'Checking the sheet…';
-  try { const j = await get({ action: 'coach', code: ro.code, team: ro.team, key: undefined });
+  try { const j = await get({ action: 'coach', code: coachCode(), team: ro.team, key: undefined });
     roOnFile = (j.roster || []).filter(r => r.race === ro.race);
     const empty = !$('ro-paste').value.trim();
     if (roOnFile.length && (fill || empty)) { $('ro-paste').value = roOnFile.map(r => r.grade ? `${r.name}, ${r.grade}` : r.name).join('\n'); ro.drafts[draftKey()] = $('ro-paste').value; saveRo(); }
@@ -337,7 +341,7 @@ function rowProblem(r, i) { if (!r.name) return 'missing name'; if (i !== undefi
 let codeRejected = false;
 function renderRoster() {
   $('ro-code').value = ro.code;
-  $('ro-code-wrap').classList.toggle('hidden', !!qs.get('code') && !codeRejected); // the link carries the code; only show it if the sheet says it is wrong
+  $('ro-code-wrap').classList.toggle('hidden', (isDirector() || !!qs.get('code')) && !codeRejected); // the link carries the code; only show it if the sheet says it is wrong
   $('ro-team-status').textContent = '';
   const tsel = $('ro-team-sel'); const known = roTeams.includes(ro.team);
   tsel.innerHTML = '<option value="">Choose your team…</option>' + roTeams.map(t => `<option>${t}</option>`).join('') + '<option value="__other">Not listed (type it)…</option>';
@@ -351,8 +355,8 @@ function renderRoster() {
 }
 async function coachSync(quiet) {
   $('ro-team-status').textContent = 'Loading teams from the sheet…';
-  try { const j = await get({ action: 'coach', code: ro.code, key: undefined });
-    codeRejected = false; $('ro-code-wrap').classList.toggle('hidden', !!qs.get('code'));
+  try { const j = await get({ action: 'coach', code: coachCode(), key: undefined });
+    codeRejected = false; $('ro-code-wrap').classList.toggle('hidden', isDirector() || !!qs.get('code'));
     races = j.races || []; store.set('races', races); roTeams = j.teams || []; store.set('teams', roTeams);
     $('ro-team-status').textContent = roTeams.length ? `${roTeams.length} teams loaded from the sheet` : 'The meet director has not entered any teams yet — pick “Not listed” and type yours';
     const tsel = $('ro-team-sel'); const known = roTeams.includes(ro.team);
@@ -400,7 +404,7 @@ $('ro-submit').onclick = async () => {
   if (!ro.team) return toast('Choose your team', true); if (!ro.race) return toast('Choose a race', true); if (!rows.length) return toast('Paste your runners first', true);
   const bad = roRows.filter((r, i) => ['missing name', 'grade?', 'listed twice'].includes(rowProblem(r, i))); if (bad.length) return toast(`Fix the ${bad.length} highlighted row${bad.length > 1 ? 's' : ''} first (${rowProblem(bad[0], roRows.indexOf(bad[0]))})`, true);
   $('ro-submit').disabled = true;
-  try { const j = await post({ action: 'roster_submit', code: ro.code, team: ro.team, race: ro.race, runners: rows });
+  try { const j = await post({ action: 'roster_submit', code: coachCode(), team: ro.team, race: ro.race, runners: rows });
     showRosterOnFile(j.roster.filter(r => r.race === ro.race), `Submitted — ${ro.team}, ${ro.race}. Bibs:`); toast('Roster submitted ✓'); coachSync(true); loadOnFile(true); }
   catch (e) { toast('Could not submit: ' + e.message, true); }
   finally { $('ro-submit').disabled = false; }

@@ -1,5 +1,5 @@
 // Network-first for the app shell, cache fallback so the page opens with no signal.
-const CACHE = 'xc-v2';
+const CACHE = 'xc-v3';
 const SHELL = ['./', './index.html', './app.js', './style.css', './manifest.json',
                './icons/icon-192.png', './icons/icon-512.png'];
 
