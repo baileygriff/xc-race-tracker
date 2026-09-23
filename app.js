@@ -1,6 +1,6 @@
 /* XC Race Tracker — one page, three jobs. Every tap is saved on the phone at once.
    Sending is optional and repeatable: the sheet replaces this phone's earlier data for the same race and job. */
-const VERSION = '0.6.0';
+const VERSION = '0.6.1';
 const $ = id => document.getElementById(id);
 
 // ---------- storage ----------
@@ -304,6 +304,7 @@ $('btn-results-refresh').onclick = loadResults;
 
 // ---------- ROSTER (coaches paste, check, submit) ----------
 const ro = Object.assign({ code: '', team: '', race: '', drafts: {} }, store.get('roster-form', {}));
+if (store.get('draftsVersion', 1) < 2) { ro.drafts = {}; store.set('roster-form', ro); store.set('draftsVersion', 2); } // v0.6.0 and earlier could save one team's list under another
 if (qs.get('code')) ro.code = qs.get('code');
 let roTeams = store.get('teams', []);
 let roRows = []; // [{name, grade}]
@@ -313,13 +314,15 @@ const bibOnFile = name => (roOnFile.find(r => r.name.toLowerCase() === name.toLo
 /** Fetches this team + race from the sheet. With `fill`, or when the editor is empty, puts it in the editor so small edits are easy. */
 async function loadOnFile(fill) {
   roOnFile = []; if (!ro.team || !ro.race) { $('ro-file-status').textContent = ''; return; }
+  const want = draftKey(), team = ro.team, race = ro.race; // the team + race this load is for
   $('ro-file-status').textContent = 'Checking the sheet…';
-  try { const j = await get({ action: 'coach', code: coachCode(), team: ro.team, key: undefined });
-    roOnFile = (j.roster || []).filter(r => r.race === ro.race);
+  try { const j = await get({ action: 'coach', code: coachCode(), team, key: undefined });
+    if (draftKey() !== want) return; // the user switched team or race while this was in flight: this answer is for another list
+    roOnFile = (j.roster || []).filter(r => r.race === race);
     const empty = !$('ro-paste').value.trim();
-    if (roOnFile.length && (fill || empty)) { $('ro-paste').value = roOnFile.map(r => r.grade ? `${r.name}, ${r.grade}` : r.name).join('\n'); ro.drafts[draftKey()] = $('ro-paste').value; saveRo(); }
-    $('ro-file-status').textContent = roOnFile.length ? `${roOnFile.length} runners on file for ${ro.team} ${ro.race}, loaded below with their bibs. Edit, add or remove lines, then submit.` : `Nothing on file yet for ${ro.team} ${ro.race}.`;
-  } catch (e) { $('ro-file-status').innerHTML = `<span class="flag">⚠ ${e.message}</span>`; }
+    if (roOnFile.length && (fill || empty)) { $('ro-paste').value = roOnFile.map(r => r.grade ? `${r.name}, ${r.grade}` : r.name).join('\n'); delete ro.drafts[want]; saveRo(); } // the sheet's list is not a draft
+    $('ro-file-status').textContent = roOnFile.length ? `${roOnFile.length} runners on file for ${team} ${race}, loaded below with their bibs. Edit, add or remove lines, then submit.` : `Nothing on file yet for ${team} ${race}.`;
+  } catch (e) { if (draftKey() === want) $('ro-file-status').innerHTML = `<span class="flag">⚠ ${e.message}</span>`; return; }
   renderRosterPreview();
 }
 const saveRo = () => store.set('roster-form', ro);
@@ -403,6 +406,11 @@ $('ro-submit').onclick = async () => {
   const rows = roRows.filter(r => r.name);
   if (!ro.team) return toast('Choose your team', true); if (!ro.race) return toast('Choose a race', true); if (!rows.length) return toast('Paste your runners first', true);
   const bad = roRows.filter((r, i) => ['missing name', 'grade?', 'listed twice'].includes(rowProblem(r, i))); if (bad.length) return toast(`Fix the ${bad.length} highlighted row${bad.length > 1 ? 's' : ''} first (${rowProblem(bad[0], roRows.indexOf(bad[0]))})`, true);
+  const onFileNames = new Set(roOnFile.map(r => r.name.toLowerCase()));
+  if (roOnFile.length && !rows.some(r => onFileNames.has(r.name.toLowerCase()))) {
+    if (!$('ro-submit').dataset.armed) return armed($('ro-submit'), `None of these names are on file for ${ro.team} ${ro.race}. Tap again to replace all ${roOnFile.length}`, () => {});
+    clearTimeout(+$('ro-submit').dataset.armed); disarm($('ro-submit'));
+  }
   $('ro-submit').disabled = true;
   try { const j = await post({ action: 'roster_submit', code: coachCode(), team: ro.team, race: ro.race, runners: rows });
     showRosterOnFile(j.roster.filter(r => r.race === ro.race), `Submitted — ${ro.team}, ${ro.race}. Bibs:`); toast('Roster submitted ✓'); coachSync(true); loadOnFile(true); }
