@@ -21,8 +21,14 @@ fs.readFileSync(file, 'utf8').split(/\r?\n/).forEach(line => {
 });
 (async () => {
   for (const b of blocks) {
-    const res = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow',
-      body: JSON.stringify({ action: 'roster_submit', code, team: b.team, race: b.race, runners: b.runners }) }).then(r => r.json());
+    let res;
+    for (let attempt = 0; attempt < 5 && !res; attempt++) { // safe to repeat: a submit replaces that team + race
+      if (attempt) await new Promise(r => setTimeout(r, 1500 * attempt));
+      const r = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow',
+        body: JSON.stringify({ action: 'roster_submit', code, team: b.team, race: b.race, runners: b.runners }) });
+      const t = await r.text(); try { res = JSON.parse(t); } catch { console.error(`  ${b.team} ${b.race}: Google error page (${r.status}), retrying`); }
+    }
+    if (!res) { console.error(`${b.team} ${b.race}: gave up after 5 tries`); process.exitCode = 1; continue; }
     if (!res.ok) { console.error(`${b.team} ${b.race}: ${res.error}`); process.exitCode = 1; continue; }
     console.log(`${b.team} ${b.race}: ${res.roster.length} runners`); res.roster.forEach(r => console.log(`   ${r.bib}  ${r.name}${r.grade ? ' (' + r.grade + ')' : ''}`));
   }

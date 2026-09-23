@@ -1,6 +1,6 @@
 /* XC Race Tracker — one page, three jobs. Every tap is saved on the phone at once.
    Sending is optional and repeatable: the sheet replaces this phone's earlier data for the same race and job. */
-const VERSION = '0.5.0';
+const VERSION = '0.5.1';
 const $ = id => document.getElementById(id);
 
 // ---------- storage ----------
@@ -79,25 +79,37 @@ function noteClock(j, t0, t1) {
   if (rtt < clock.rtt || Date.now() - clock.at > 600000) { clock.offset = offset; clock.rtt = rtt; clock.at = Date.now(); store.set('clock', clock); }
 }
 const toLocal = sheetMs => sheetMs + clock.offset, toSheet = localMs => localMs - clock.offset;
+// Google occasionally answers with an HTML error page instead of JSON. Every request here is safe to repeat
+// (each send replaces that phone's rows, the start is first-press-wins, a reset clears), so retry a few times.
+async function sheetFetch(url, opts) {
+  let last;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt) await new Promise(r => setTimeout(r, 600 * attempt));
+    const t0 = Date.now();
+    let r; try { r = await fetch(url, Object.assign({ redirect: 'follow' }, opts)); } catch (e) { last = new Error('No connection to the sheet'); continue; }
+    const text = await r.text();
+    let j; try { j = JSON.parse(text); } catch { last = new Error(`Google returned an error page (${r.status}); tried ${attempt + 1}×`); continue; }
+    noteClock(j, t0, Date.now());
+    if (!j.ok) throw new Error(j.error || 'Sheet rejected the request');
+    return j;
+  }
+  throw last;
+}
 async function post(payload) {
   needEndpoint();
   // text/plain avoids a CORS preflight, which Apps Script cannot answer.
-  const t0 = Date.now();
-  const r = await fetch(settings.endpoint, { method: 'POST', body: JSON.stringify(Object.assign({ key: settings.key }, payload)),
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow' });
-  const j = await r.json(); noteClock(j, t0, Date.now()); if (!j.ok) throw new Error(j.error || 'Sheet rejected the data'); return j;
+  return sheetFetch(settings.endpoint, { method: 'POST', body: JSON.stringify(Object.assign({ key: settings.key }, payload)), headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
 }
 async function get(params) {
   needEndpoint();
   const u = new URL(settings.endpoint); Object.entries(Object.assign({ key: settings.key }, params)).forEach(([k, v]) => { if (v !== undefined) u.searchParams.set(k, v); });
-  const t0 = Date.now(); const r = await fetch(u, { redirect: 'follow' }); const j = await r.json(); noteClock(j, t0, Date.now());
-  if (!j.ok) throw new Error(j.error || 'Sheet returned an error'); return j;
+  return sheetFetch(u);
 }
 async function sendWithFeedback(btns, payload, what) {
-  btns.forEach(b => { b.disabled = true; });
+  btns.forEach(b => { b.disabled = true; b.dataset.prev = b.innerHTML; b.innerHTML = 'Sending…'; });
   try { const j = await post(payload); toast(`Sent ${what} to the sheet ✓` + (j.note ? ' — ' + j.note : ''), !!j.note); return true; }
   catch (e) { toast('Send failed: ' + explain(e) + '. Nothing is lost — try again or use Copy.', true); return false; }
-  finally { btns.forEach(b => { b.disabled = false; }); }
+  finally { btns.forEach(b => { b.disabled = false; if (b.dataset.prev) b.innerHTML = b.dataset.prev; }); }
 }
 function explain(e) { return /volunteer code/i.test(e.message) ? 'Wrong volunteer code — fix it under ⚙ Settings' : e.message; }
 async function syncFromSheet(quiet) {
@@ -141,8 +153,10 @@ function sharedLine(d) {
   return d.sharedBy ? `Shared start, pressed by ${d.sharedBy === settings.device ? 'you' : d.sharedBy}` : 'Started on this phone only (no signal at the gun)';
 }
 /** While on the timer page, keep an eye on the race's shared start: adopt it, or notice that it was reset. */
+let pollBusy = false; // never stack polls: when Google is slow, overlapping requests make it slower for every phone
 async function pollShared() {
-  if ($('view-timer').classList.contains('hidden') || !navigator.onLine || !settings.endpoint) return;
+  if (pollBusy || $('view-timer').classList.contains('hidden') || !navigator.onLine || !settings.endpoint) return;
+  pollBusy = true;
   try {
     const j = await get({ action: 'start', race: raceKey() }); const d = rd.get(); const s = j.start;
     if (s && !d.start) { d.start = toLocal(s.ms); d.startSheet = s.ms; d.sharedBy = s.device; d.end = null; d.sharedNote = ''; rd.set(d); keepAwake(); renderTimer(); toast(`Started by ${s.device} — clock adopted`); }
@@ -151,13 +165,13 @@ async function pollShared() {
     else if (!s && d.start && d.sharedBy && !d.end) { // the shared start was reset by someone
       if (!d.laps.length) { d.start = null; d.sharedBy = null; d.sharedNote = ''; rd.set(d); renderTimer(); toast('The race start was reset — waiting for the gun again'); }
       else if (!d.sharedNote) { d.sharedNote = 'Another timer reset the race start. Your times are kept; reset here too if the race really restarted.'; rd.set(d); renderTimer(); } }
-  } catch {}
+  } catch {} finally { pollBusy = false; }
 }
 function renderTimer() {
   const d = rd.get(); const phase = !d.start ? 'idle' : d.end ? 'done' : 'running';
   ['idle', 'running', 'done'].forEach(p => $('timer-phase-' + p).classList.toggle('hidden', p !== phase));
   $('timer-shared').innerHTML = sharedLine(d);
-  clearInterval(sharedPoll); if (phase !== 'done') sharedPoll = setInterval(pollShared, phase === 'idle' ? 2000 : 5000);
+  clearInterval(sharedPoll); if (phase !== 'done') sharedPoll = setInterval(pollShared, phase === 'idle' ? 2000 : 15000);
   $('lap-count').textContent = `${d.laps.length} finisher${d.laps.length === 1 ? '' : 's'}`;
   const sig = d.laps.join(',');
   $('timer-done-msg').innerHTML = `Race finished — ${d.laps.length} finishers. ` + (!d.sentSig ? '<span class="flag">Not sent to the sheet yet.</span>'
