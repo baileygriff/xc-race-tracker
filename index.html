@@ -20,7 +20,7 @@
   </header>
 
   <!-- HOME -->
-  <section id="view-home" class="view">
+  <section id="view-home" class="view hidden">
     <label>Race
       <select id="home-race"></select>
       <input id="home-race-other" class="hidden" placeholder="Type the race name">
@@ -143,6 +143,7 @@
 
   <!-- SETTINGS -->
   <section id="view-settings" class="view hidden">
+    <p class="hint" id="set-role"></p>
     <label>Sheet endpoint URL<input id="set-endpoint" placeholder="https://script.google.com/macros/s/.../exec" autocomplete="off"></label>
     <label>Volunteer code (a shared password from the meet director; the link you were sent fills it in)<input id="set-key" placeholder="Ask the meet director" autocomplete="off"></label>
     <label>Bibs for this race, only if they won't load from the sheet<textarea id="set-bibs" rows="2" placeholder="123 456 789"></textarea></label>

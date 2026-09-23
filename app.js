@@ -1,6 +1,6 @@
 /* XC Race Tracker — one page, three jobs. Every tap is saved on the phone at once.
    Sending is optional and repeatable: the sheet replaces this phone's earlier data for the same race and job. */
-const VERSION = '0.6.1';
+const VERSION = '0.6.2';
 const $ = id => document.getElementById(id);
 
 // ---------- storage ----------
@@ -13,8 +13,11 @@ const settings = Object.assign({ race: '', device: '', endpoint: '', key: '', dk
 // They are applied once per distinct link, so a value later changed under ⚙ is not clobbered by reopening the same link.
 const qs = new URLSearchParams(location.search);
 const saveSettings = () => store.set('settings', settings);
+// Each link also says what this phone IS: a link with the director code makes it the director's phone; any other link
+// (volunteer or coach) takes that away, so a phone that once opened the director link does not stay the director.
 if (location.search && store.get('lastLink') !== location.search) {
-  for (const k of ['race', 'device', 'endpoint', 'key', 'dkey']) if (qs.get(k)) settings[k] = qs.get(k);
+  for (const k of ['race', 'device', 'endpoint', 'key']) if (qs.get(k)) settings[k] = qs.get(k);
+  if (qs.get('key') || qs.get('code') || qs.get('dkey')) settings.dkey = qs.get('dkey') || '';
   store.set('lastLink', location.search);
 }
 saveSettings();
@@ -463,7 +466,10 @@ $('su-save').onclick = async () => {
 $('link-setup').onclick = e => { e.preventDefault(); show('setup'); };
 
 // ---------- SETTINGS / NAV ----------
-function renderSettings() { $('set-endpoint').value = settings.endpoint; $('set-key').value = settings.key; $('set-bibs').value = settings.bibs; }
+function renderSettings() {
+  $('set-role').innerHTML = isDirector() ? 'This phone is the <b>director</b>’s: every screen, every team. Opening a volunteer or coach link turns that off.'
+    : 'This phone is set up for <b>volunteers</b> (and coaches, from the coach link). The director link turns on every screen.';
+  $('set-endpoint').value = settings.endpoint; $('set-key').value = settings.key; $('set-bibs').value = settings.bibs; }
 $('btn-settings').onclick = () => show('settings');
 $('btn-back').onclick = () => show('home');
 $('btn-settings-save').onclick = async () => {
@@ -475,8 +481,11 @@ $('version').textContent = 'v' + VERSION;
 
 // ---------- boot ----------
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
-(async () => {
-  if (settings.endpoint && navigator.onLine) await syncFromSheet(true);
+// Open the right page at once from what is on the phone; the sheet sync runs behind it (Google can take seconds).
+(() => {
   const start = qs.get('mode') || store.get('view', 'home');
-  if ((qs.get('page') === 'roster' || qs.get('page') === 'setup') && settings.endpoint) show(qs.get('page')); else if (!settings.endpoint) show('settings'); else if (start !== 'home' && start !== 'settings' && settings.race && (settings.device || start === 'results')) show(start); else show('home');
+  if ((qs.get('page') === 'roster' || qs.get('page') === 'setup') && settings.endpoint) show(qs.get('page')); else if (!settings.endpoint) show('settings'); else if (start !== 'home' && start !== 'settings' && start !== 'roster' && start !== 'setup' && settings.race && (settings.device || start === 'results')) show(start); else show('home');
+  if (settings.endpoint && navigator.onLine) syncFromSheet(true).then(() => {
+    const v = store.get('view'); if (v === 'home') renderHome(); else if (v === 'finishers') renderFinishers();
+  });
 })();
