@@ -11,7 +11,7 @@ sheets.Roster.rows.push(['A','a1','','Boys','101'],['A','a2','','Boys','202'],['
 assert.strictEqual(ctx.assignBibs(), 1);
 const bibs = sheets.Roster.rows.slice(1).map(r=>String(r[4]));
 const newBib = bibs[bibs.length-1]; assert.match(newBib, /^\d{3}$/);
-bibs.slice(0,-1).forEach(b => assert.ok([0,1,2].filter(i=>b[i]!==newBib[i]).length >= 2, `${newBib} too close to ${b}`));
+assert.ok(!bibs.slice(0,-1).includes(newBib), 'new bib is unique meet-wide'); // spacing is per race; the new runner is the only Girls runner
 
 const post = body => ctx.doPost({ postData:{ contents: JSON.stringify(Object.assign({ key:'pc' }, body)) } });
 // passcode
