@@ -115,4 +115,12 @@ assert.strictEqual(ctx.doGet({ parameter:{ action:'start', race:'Girls', key:'pc
 post({ action:'start_clear', race:'Boys', device:'Kim' });
 assert.strictEqual(ctx.doGet({ parameter:{ action:'start', race:'Boys', key:'pc' } }).start, null);
 assert.match(post({ action:'start_set', race:'', device:'Sam', ms: 5 }).error, /race/i);
+
+// bib spacing holds within a race even with far more runners than fit meet-wide
+for (let i = 0; i < 80; i++) { sheets.Roster.rows.push(['Big', 'Boy ' + i, '', 'Big Boys', '']); sheets.Roster.rows.push(['Big', 'Girl ' + i, '', 'Big Girls', '']); }
+ctx.assignBibs();
+const rs = sheets.Roster.rows.slice(1); const allBibs = rs.map(r => String(r[4]));
+assert.strictEqual(new Set(allBibs).size, allBibs.length, 'bibs unique meet-wide');
+for (const race of ['Big Boys', 'Big Girls']) { const b = rs.filter(r => r[3] === race).map(r => String(r[4]));
+  for (let i = 0; i < b.length; i++) for (let j = i + 1; j < b.length; j++) assert.ok([0,1,2].filter(k => b[i][k] !== b[j][k]).length >= 2, `${race} ${b[i]} vs ${b[j]}`); }
 console.log('backend tests pass');

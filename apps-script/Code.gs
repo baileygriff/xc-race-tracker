@@ -89,20 +89,31 @@ function setMeetConfig(p) {
   return meetConfig();
 }
 
-/** Gives every Roster row without a bib a 3-digit number that differs from every other bib
- *  in at least two digit positions, so a single misread digit can never land on another real runner. */
+/** Gives every Roster row without a bib a 3-digit number that is unused anywhere in the meet and differs from every
+ *  other bib IN THE SAME RACE in at least two digit positions, so a single misread digit can never land on another
+ *  runner in the grid a finish logger is looking at. (Across the whole meet that is impossible past ~90 runners.) */
 function assignBibs() {
   const sh = SS().getSheetByName('Roster'); const rows = sh.getDataRange().getValues(); rows.shift();
-  const used = rows.map(r => String(r[4])).filter(b => /^\d{3}$/.test(b));
+  const all = new Set(rows.map(r => String(r[4])).filter(b => /^\d{3}$/.test(b)));
+  const byRace = {}; rows.forEach(r => { if (/^\d{3}$/.test(String(r[4]))) (byRace[r[3]] = byRace[r[3]] || []).push(String(r[4])); });
   const distance = (a, b) => [0, 1, 2].filter(i => a[i] !== b[i]).length;
   const pool = []; for (let n = 100; n <= 999; n++) pool.push(String(n));
   for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
-  const pick = minDist => pool.find(c => !used.includes(c) && used.every(u => distance(c, u) >= minDist));
   let assigned = 0;
+  // Numbers whose digit sums agree mod 10 always differ in two places, and there are 90 of each family, so each race
+  // draws first from the family that its existing bibs leave the most room in.
+  const digitSum = b => (+b[0] + +b[1] + +b[2]) % 10;
+  const family = {};
+  const familyFor = race => { if (family[race] !== undefined) return family[race];
+    let best = 0, room = -1; for (let f = 0; f < 10; f++) { const n = pool.filter(c => digitSum(c) === f && !all.has(c) && (byRace[race] || []).every(u => distance(c, u) >= 2)).length; if (n > room) { room = n; best = f; } }
+    return family[race] = best; };
   rows.forEach((r, i) => {
     if (/^\d{3}$/.test(String(r[4]))) return;
+    const same = byRace[r[3]] = byRace[r[3]] || []; const f = familyFor(r[3]);
+    const ok = (c, minDist) => !all.has(c) && same.every(u => distance(c, u) >= minDist);
+    const pick = minDist => pool.find(c => digitSum(c) === f && ok(c, minDist)) || pool.find(c => ok(c, minDist));
     const bib = pick(2) || pick(1); if (!bib) throw new Error('Out of bib numbers');
-    used.push(bib); sh.getRange(i + 2, 5).setValue(bib); assigned++;
+    all.add(bib); same.push(bib); sh.getRange(i + 2, 5).setValue(bib); assigned++;
   });
   return assigned;
 }
