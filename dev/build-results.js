@@ -5,7 +5,9 @@
 const fs = require('fs');
 const [src, out] = process.argv.slice(2);
 const snap = JSON.parse(fs.readFileSync(src, 'utf8'));
-const MEET = { title: 'Exploris XC Home Meet', date: 'Thursday, September 24, 2026', place: 'Dix Park, Raleigh' };
+const MEET = { title: 'Exploris XC Home Meet', date: 'Thursday, September 24, 2026', place: 'Dix Park, Raleigh',
+  // School colors: [shade for light mode, shade for dark mode]. A school not listed falls back to the default palette.
+  colors: { 'Exploris': ['#6b2fa3', '#b88af2'], 'Magellan': ['#0e7c7f', '#3cc9c9'], 'Envision': ['#7f1734', '#e0718a'], "St. David's": ['#1f3a7a', '#86a4e8'] } };
 const races = ['Girls', 'Boys'].filter(r => snap[r]).map(race => {
   const res = snap[race];
   const gradeOf = {}; (snap.roster || []).forEach(r => { if (r.race === race) gradeOf[r.bib] = r.grade; });

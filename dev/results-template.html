@@ -86,6 +86,9 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 const ord = n => n + (['st', 'nd', 'rd'][((n + 90) % 100 - 10) % 10 - 1] || 'th');
 const allTeams = [...new Set(DATA.races.flatMap(r => r.teams.map(t => t.team)))].sort((a, b) => a.localeCompare(b));
 const color = t => `var(--t${Math.max(0, allTeams.indexOf(t)) % 6})`;
+// School colors from the meet config replace the default palette, with a separate shade for dark mode.
+(() => { const c = DATA.meet.colors || {}; const set = k => allTeams.map((t, i) => c[t] ? `--t${i}: ${c[t][k]};` : '').join(' ');
+  const st = document.createElement('style'); st.textContent = `:root { ${set(0)} } @media (prefers-color-scheme: dark) { :root { ${set(1)} } }`; document.head.appendChild(st); })();
 const state = { race: 'All', team: 'All', q: '' };
 document.title = `${DATA.meet.title} — Results`;
 $('title').textContent = DATA.meet.title + ' Results';
