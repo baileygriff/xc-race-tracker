@@ -1,6 +1,6 @@
 /* XC Race Tracker — one page, three jobs. Every tap is saved on the phone at once.
    Sending is optional and repeatable: the sheet replaces this phone's earlier data for the same race and job. */
-const VERSION = '0.6.2';
+const VERSION = '0.6.3';
 const $ = id => document.getElementById(id);
 
 // ---------- storage ----------
@@ -296,10 +296,15 @@ async function loadResults() {
     $('results-status').innerHTML = `${raceKey()} — timers: ${devs.timer.map(d => `${d.device} (${d.count})`).join(', ') || 'none'}; ` +
       `finishers: ${devs.places.map(d => `${d.device} (${d.count})`).join(', ') || 'none'} ` +
       `<span class="badge ${j.warnings?.length || flagged ? 'bad' : 'ok'}">${j.warnings?.length || flagged ? [...(j.warnings || []), flagged ? flagged + ' flagged rows' : ''].filter(Boolean).join(' · ') : 'all consistent'}</span>`;
-    let h = '<h3>Team scores</h3><table><tr><th>#</th><th>Team</th><th>Score</th><th>Scorers</th><th></th></tr>' +
-      (j.teams || []).map(t => `<tr><td>${t.rank || ''}</td><td>${t.team}</td><td>${t.score ?? ''}</td><td>${t.scorers || ''}</td><td class="flag">${t.note || ''}</td></tr>`).join('') + '</table>';
-    h += '<h3>Individual</h3><table><tr><th>#</th><th>Bib</th><th>Name</th><th>Team</th><th>Time</th><th></th></tr>' +
-      (j.results || []).map(r => `<tr class="${r.flags ? 'flagged' : ''}"><td>${r.pos}</td><td>${r.bib || ''}</td><td>${r.name || ''}</td><td>${r.team || ''}</td><td>${r.time || ''}</td><td class="flag">${r.flags || ''}</td></tr>`).join('') + '</table>';
+    // "Scorers" are team points, not finish places: runners from teams with fewer than five finishers are skipped and
+    // everyone else renumbered. Show the names beside the points so that is visible.
+    const pts = r => r.scoringPlace === '' || r.scoringPlace == null ? '' : r.scoringPlace;
+    const scorerNames = team => (j.results || []).filter(r => r.team === team && pts(r) !== '').slice(0, 5).map(r => `${r.name} <b>${pts(r)}</b> <small style="color:var(--muted)">(${r.pos}${['st','nd','rd'][((r.pos + 90) % 100 - 10) % 10 - 1] || 'th'})</small>`).join('<br>');
+    let h = '<h3>Team scores</h3><table><tr><th>#</th><th>Team</th><th>Score</th><th>Scorers: team points (overall place)</th><th></th></tr>' +
+      (j.teams || []).map(t => `<tr><td>${t.rank || ''}</td><td>${t.team}</td><td>${t.score ?? ''}</td><td>${t.score == null ? '' : scorerNames(t.team)}</td><td class="flag">${t.note || ''}</td></tr>`).join('') + '</table>' +
+      '<p class="hint">Team points skip runners from teams with fewer than five finishers, so a runner\'s points can be lower than their overall place. Lowest total of the top five wins; a tie goes to the better sixth runner.</p>';
+    h += '<h3>Individual</h3><table><tr><th>#</th><th>Bib</th><th>Name</th><th>Team</th><th>Time</th><th>Team pts</th><th></th></tr>' +
+      (j.results || []).map(r => `<tr class="${r.flags ? 'flagged' : ''}"><td>${r.pos}</td><td>${r.bib || ''}</td><td>${r.name || ''}</td><td>${r.team || ''}</td><td>${r.time || ''}</td><td>${pts(r) === '' ? '<span style="color:var(--muted)">—</span>' : pts(r)}</td><td class="flag">${r.flags || ''}</td></tr>`).join('') + '</table>';
     $('results-out').innerHTML = h;
   } catch (e) { $('results-status').textContent = 'Could not load: ' + explain(e); }
 }
