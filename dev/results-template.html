@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Meet Results</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #151a22; --muted: #5f6b7a; --line: #e3e7ec; --accent: #1f5fbf;
+    --gold: #b8860b; --silver: #7a8591; --bronze: #a0602a; --hl: #fff4c2;
+    --t0: #1f6fd1; --t1: #c2410c; --t2: #0f8a5f; --t3: #8b3fc7; --t4: #b0306a; --t5: #52606d;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1318; --card: #171c23; --text: #eef1f5; --muted: #9aa5b2; --line: #28303a; --accent: #7fb0ff;
+      --gold: #e3b341; --silver: #b7c0ca; --bronze: #d49a6a; --hl: #4a3f12;
+      --t0: #6ea8ff; --t1: #ff8a57; --t2: #3fd49b; --t3: #c28bff; --t4: #ff7ab2; --t5: #a8b3bf; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.4 -apple-system, system-ui, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 16px 48px; }
+  header { padding: 28px 0 16px; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -.01em; }
+  .sub { color: var(--muted); font-size: 15px; }
+  .bar { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .search { width: 100%; font: inherit; font-size: 17px; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
+  .search:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .chips { display: flex; gap: 8px; overflow-x: auto; padding-top: 10px; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip { flex: none; font: inherit; font-size: 14px; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--text); cursor: pointer; }
+  .chip[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .sep { flex: none; width: 1px; background: var(--line); margin: 4px 2px; }
+  section.race { margin-top: 28px; }
+  h2 { font-size: 22px; margin: 0 0 12px; display: flex; align-items: baseline; gap: 10px; }
+  h2 small { font-size: 14px; color: var(--muted); font-weight: 400; }
+  h3 { font-size: 15px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 22px 0 10px; }
+  .teams { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+  .team { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; border-top: 4px solid var(--tc); }
+  .team .top { display: flex; align-items: baseline; gap: 10px; }
+  .team .rank { font-size: 13px; font-weight: 700; color: var(--muted); width: 2.2em; }
+  .team .rank.r1 { color: var(--gold); } .team .rank.r2 { color: var(--silver); } .team .rank.r3 { color: var(--bronze); }
+  .team .name { font-weight: 700; font-size: 17px; flex: 1; }
+  .team .score { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .team .score small { font-size: 12px; font-weight: 500; color: var(--muted); margin-left: 3px; }
+  .team ol { list-style: none; margin: 10px 0 0; padding: 0; font-size: 14px; }
+  .team li { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-top: 1px dashed var(--line); }
+  .team li:first-child { border-top: 0; }
+  .team li span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .team .note { color: var(--muted); font-size: 14px; margin-top: 8px; }
+  table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 10px 10px; border-top: 1px solid var(--line); font-size: 15px; }
+  th { border-top: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+  td.pl { font-weight: 700; width: 2.6em; }
+  td.pl.p1 { color: var(--gold); } td.pl.p2 { color: var(--silver); } td.pl.p3 { color: var(--bronze); }
+  td.nm { font-weight: 600; }
+  td.nm .meta { display: none; font-weight: 400; font-size: 13px; color: var(--muted); margin-top: 2px; }
+  td.tm { font-weight: 700; text-align: right; white-space: nowrap; }
+  th.tm { text-align: right; }
+  td.pts, th.pts { text-align: right; color: var(--muted); width: 3.5em; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--tc); margin-right: 6px; vertical-align: 1px; }
+  tr.hit td { background: var(--hl); }
+  tr.nobib td.nm { font-weight: 400; font-style: italic; color: var(--muted); }
+  .empty { color: var(--muted); padding: 16px; text-align: center; background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
+  footer { color: var(--muted); font-size: 13px; margin-top: 32px; line-height: 1.5; }
+  @media (max-width: 560px) {
+    th.gr, td.gr, th.tmn, td.tmn { display: none; }
+    td.nm .meta { display: block; }
+    th, td { padding: 9px 8px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1 id="title"></h1><div class="sub" id="sub"></div></header>
+  <div class="bar">
+    <input class="search" id="q" type="search" placeholder="Find a runner or school" autocomplete="off" aria-label="Find a runner or school">
+    <div class="chips" id="chips"></div>
+  </div>
+  <main id="out"></main>
+  <footer id="foot"></footer>
+</div>
+<script>
+const DATA = /*DATA*/null;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const ord = n => n + (['st', 'nd', 'rd'][((n + 90) % 100 - 10) % 10 - 1] || 'th');
+const allTeams = [...new Set(DATA.races.flatMap(r => r.teams.map(t => t.team)))].sort((a, b) => a.localeCompare(b));
+const color = t => `var(--t${Math.max(0, allTeams.indexOf(t)) % 6})`;
+const state = { race: 'All', team: 'All', q: '' };
+document.title = `${DATA.meet.title} — Results`;
+$('title').textContent = DATA.meet.title + ' Results';
+$('sub').textContent = `${DATA.meet.date} · ${DATA.meet.place}`;
+$('foot').innerHTML = 'Team scores add the team points of each school\'s top five finishers; lowest total wins, and a tie goes to the better sixth runner. ' +
+  'Team points count only runners from schools with at least five finishers, so a runner\'s team points can be lower than their overall place.';
+
+function chips() {
+  const b = (group, v, label) => `<button class="chip" data-g="${group}" data-v="${esc(v)}" aria-pressed="${state[group] === v}">${label}</button>`;
+  $('chips').innerHTML = ['All', ...DATA.races.map(r => r.race)].map(r => b('race', r, r === 'All' ? 'Girls & Boys' : r)).join('') +
+    '<span class="sep"></span>' + ['All', ...allTeams].map(t => b('team', t, t === 'All' ? 'All schools' : `<span class="dot" style="--tc:${color(t)}"></span>${esc(t)}`)).join('');
+}
+$('chips').onclick = e => { const c = e.target.closest('.chip'); if (!c) return; state[c.dataset.g] = c.dataset.v; chips(); render(); };
+$('q').oninput = () => { state.q = $('q').value.trim().toLowerCase(); render(); };
+
+function render() {
+  const q = state.q;
+  const match = x => (state.team === 'All' || x.team === state.team) && (!q || (!x.nobib && (x.name.toLowerCase().includes(q) || x.team.toLowerCase().includes(q))));
+  const shown = DATA.races.filter(r => (state.race === 'All' || r.race === state.race) && (!q || r.runners.some(match)));
+  if (!shown.length) { $('out').innerHTML = `<section class="race"><div class="empty">No runner or school matches “${esc($('q').value)}”.</div></section>`; return; }
+  const html = shown.map(r => {
+    const rows = r.runners.filter(match);
+    const teams = r.teams.filter(t => state.team === 'All' || t.team === state.team);
+    const teamCards = teams.map(t => `<div class="team" style="--tc:${color(t.team)}">
+        <div class="top"><span class="rank ${t.rank ? 'r' + t.rank : ''}">${t.rank ? ord(t.rank) : ''}</span><span class="name">${esc(t.team)}</span>
+          ${t.score != null ? `<span class="score">${t.score}<small>pts</small></span>` : ''}</div>
+        ${t.scorers.length ? `<ol>${t.scorers.map(s => `<li><span>${esc(s.name)}</span><span>${s.pts} pt${s.pts === 1 ? '' : 's'} · ${ord(s.place)}</span></li>`).join('')}</ol>` : ''}
+        ${t.note ? `<div class="note">${esc(t.note)}</div>` : ''}</div>`).join('');
+    const table = rows.length ? `<table><thead><tr><th>Place</th><th>Runner</th><th class="gr">Gr</th><th class="tmn">School</th><th class="tm">Time</th><th class="pts">Pts</th></tr></thead><tbody>` +
+      rows.map(x => x.nobib ? `<tr class="nobib"><td class="pl">${x.place}</td><td class="nm">No bib</td><td class="gr"></td><td class="tmn"></td><td class="tm">${esc(x.time)}</td><td class="pts">–</td></tr>` :
+        `<tr class="${q && x.name.toLowerCase().includes(q) ? 'hit' : ''}"><td class="pl p${x.place}">${x.place}</td>
+        <td class="nm">${esc(x.name)}<div class="meta"><span class="dot" style="--tc:${color(x.team)}"></span>${esc(x.team)}${x.grade ? ' · grade ' + esc(x.grade) : ''}</div></td>
+        <td class="gr">${esc(x.grade)}</td><td class="tmn"><span class="dot" style="--tc:${color(x.team)}"></span>${esc(x.team)}</td>
+        <td class="tm">${esc(x.time)}</td><td class="pts">${x.pts ?? '–'}</td></tr>`).join('') + '</tbody></table>'
+      : `<div class="empty">No ${r.race.toLowerCase()} match “${esc($('q').value)}”.</div>`;
+    return `<section class="race" id="race-${r.race.toLowerCase()}"><h2>${r.race} <small>${r.runners.length} finishers</small></h2>
+      ${q ? '' : `<h3>Team scores</h3><div class="teams">${teamCards}</div>`}
+      <h3>${q ? 'Matching runners' : 'Individual results'}</h3>${table}</section>`;
+  }).join('');
+  $('out').innerHTML = html;
+}
+chips(); render();
+</script>
+</body>
+</html>
